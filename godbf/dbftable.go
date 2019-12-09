@@ -14,6 +14,7 @@ const (
 	blank = 0x20
 )
 
+//DbfTable describe dbf file
 type DbfTable struct {
 	// dbase file header information
 	fileSignature         uint8 // Valid dBASE III PLUS table file (03h without a memo .DBT file; 83h with a memo)
@@ -53,6 +54,14 @@ type DbfTable struct {
 
 	// keeps the dbase table in memory as byte array
 	dataStore []byte
+}
+
+//DbfSchema describe table fields
+type DbfSchema struct {
+	FieldName     string
+	DataType      DbaseDataType
+	FieldLength   byte
+	DecimalPlaces uint8
 }
 
 // New creates a new dbase table from scratch for the given character encoding
@@ -124,6 +133,28 @@ func New(encoding string) (table *DbfTable) {
 	}
 
 	return dt
+}
+
+//AddSchema add fields to new dbf
+func (dt *DbfTable) AddSchema(sh []DbfSchema) (err error) {
+	for _, f := range sh {
+		switch f.DataType {
+		case Character:
+			err = dt.AddTextField(f.FieldName, f.FieldLength)
+		case Date:
+			err = dt.AddDateField(f.FieldName)
+		case Float:
+			err = dt.AddFloatField(f.FieldName, f.FieldLength, f.DecimalPlaces)
+		case Logical:
+			err = dt.AddBooleanField(f.FieldName)
+		case Numeric:
+			err = dt.AddNumberField(f.FieldName, f.FieldLength, f.DecimalPlaces)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (dt *DbfTable) AddBooleanField(fieldName string) (err error) {
@@ -328,6 +359,7 @@ func (dt *DbfTable) AddNewRecord() (newRecordNumber int) {
 	}
 
 	newRecord := make([]byte, dt.lengthOfEachRecord)
+	newRecord[0] = blank
 	dt.dataStore = appendSlice(dt.dataStore, newRecord)
 
 	// since row numbers are "0" based first we set newRecordNumber

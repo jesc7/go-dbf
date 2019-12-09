@@ -26,7 +26,7 @@ func (fd *FieldDescriptor) Length() byte {
 
 // FieldType returns the count of decimal places for the field
 func (fd *FieldDescriptor) DecimalCount() byte {
-	return fd.length
+	return fd.decimalPlaces
 }
 
 func (fd FieldDescriptor) usesDecimalPlaces() bool {
