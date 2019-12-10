@@ -58,10 +58,10 @@ type DbfTable struct {
 
 //DbfSchema describe table fields
 type DbfSchema struct {
-	FieldName     string
-	DataType      DbaseDataType
-	FieldLength   byte
-	DecimalPlaces uint8
+	FieldName     string `json:"FieldName"`
+	DataType      string `json:"DataType"`
+	FieldLength   byte   `json:"FieldLength"`
+	DecimalPlaces uint8  `json:"DecimalPlaces"`
 }
 
 // New creates a new dbase table from scratch for the given character encoding
@@ -136,9 +136,9 @@ func New(encoding string) (table *DbfTable) {
 }
 
 //AddSchema add fields to new dbf
-func (dt *DbfTable) AddSchema(sh []DbfSchema) (err error) {
-	for _, f := range sh {
-		switch f.DataType {
+func (dt *DbfTable) AddSchema(sch []DbfSchema) (err error) {
+	for _, f := range sch {
+		switch DbaseDataType(f.DataType[0]) {
 		case Character:
 			err = dt.AddTextField(f.FieldName, f.FieldLength)
 		case Date:
