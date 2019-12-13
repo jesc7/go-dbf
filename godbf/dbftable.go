@@ -138,20 +138,22 @@ func New(encoding string) (table *DbfTable) {
 //AddSchema add fields to new dbf
 func (dt *DbfTable) AddSchema(sch []DbfSchema) (err error) {
 	for _, f := range sch {
-		switch DbaseDataType(f.DataType[0]) {
-		case Character:
-			err = dt.AddTextField(f.FieldName, f.FieldLength)
-		case Date:
-			err = dt.AddDateField(f.FieldName)
-		case Float:
-			err = dt.AddFloatField(f.FieldName, f.FieldLength, f.DecimalPlaces)
-		case Logical:
-			err = dt.AddBooleanField(f.FieldName)
-		case Numeric:
-			err = dt.AddNumberField(f.FieldName, f.FieldLength, f.DecimalPlaces)
-		}
-		if err != nil {
-			return err
+		if len(f.DataType) != 0 {
+			switch DbaseDataType(f.DataType[0]) {
+			case Character:
+				err = dt.AddTextField(f.FieldName, f.FieldLength)
+			case Date:
+				err = dt.AddDateField(f.FieldName)
+			case Float:
+				err = dt.AddFloatField(f.FieldName, f.FieldLength, f.DecimalPlaces)
+			case Logical:
+				err = dt.AddBooleanField(f.FieldName)
+			case Numeric:
+				err = dt.AddNumberField(f.FieldName, f.FieldLength, f.DecimalPlaces)
+			}
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
