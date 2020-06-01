@@ -159,6 +159,26 @@ func (dt *DbfTable) AddSchema(sch []DbfSchema) (err error) {
 	return nil
 }
 
+//AddFieldAs add field to dst like another from src
+func (dt *DbfTable) AddFieldAs(src *FieldDescriptor, name string) (err error) {
+	switch src.FieldType() {
+	case Character:
+		err = dt.AddTextField(name, src.Length())
+	case Date:
+		err = dt.AddDateField(name)
+	case Float:
+		err = dt.AddFloatField(name, src.Length(), src.DecimalCount())
+	case Logical:
+		err = dt.AddBooleanField(name)
+	case Numeric:
+		err = dt.AddNumberField(name, src.Length(), src.DecimalCount())
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (dt *DbfTable) AddBooleanField(fieldName string) (err error) {
 	return dt.addField(fieldName, Logical, Logical.fixedFieldLength(), Logical.decimalCountNotApplicable())
 }
