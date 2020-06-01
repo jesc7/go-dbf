@@ -337,6 +337,18 @@ func (dt *DbfTable) HasField(fieldName string) bool {
 	return false
 }
 
+// FieldIdx returns field index if the table has a field with the given name
+// If the field does not exist an error is returned.
+func (dt *DbfTable) FieldIdx(fieldName string) (int, error) {
+
+	for i := 0; i < len(dt.fields); i++ {
+		if dt.fields[i].name == fieldName {
+			return i, nil
+		}
+	}
+	return -1, errors.New("Field name \"" + fieldName + "\" not exists!")
+}
+
 // DecimalPlacesInField returns the number of decimal places for the field with the given name.
 // If the field does not exist, or does not use decimal places, an error is returned.
 func (dt *DbfTable) DecimalPlacesInField(fieldName string) (uint8, error) {
