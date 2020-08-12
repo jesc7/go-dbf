@@ -1,8 +1,11 @@
 package godbf
 
 import (
+	"encoding/csv"
 	"os"
 	"strings"
+
+	"golang.org/x/text/encoding/charmap"
 
 	"github.com/axgle/mahonia"
 )
@@ -114,5 +117,43 @@ func (dt *DbfTable) SaveFile(filename string) (err error) {
 		return footerErr
 	}
 
+	return
+}
+
+//SaveCSV translate dbf to csv format
+func (dt *DbfTable) SaveCSV(filename string, delimiter rune, headers bool) (err error) {
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		f.Close()
+		if err != nil {
+			os.Remove(filename)
+		}
+	}()
+
+	encoder := charmap.Windows1251.NewEncoder()
+	w := csv.NewWriter(encoder.Writer(f))
+	w.Comma = delimiter
+	if headers {
+		fields := dt.Fields()
+		fieldRow := make([]string, len(fields))
+		for i := 0; i < len(fields); i++ {
+			fieldRow[i] = fields[i].Name()
+		}
+		if err := w.Write(fieldRow); err != nil {
+			return err
+		}
+		w.Flush()
+	}
+
+	for i := 0; i < dt.NumberOfRecords(); i++ {
+		row := dt.GetRowAsSlice(i)
+		if err := w.Write(row); err != nil {
+			return err
+		}
+		w.Flush()
+	}
 	return
 }
