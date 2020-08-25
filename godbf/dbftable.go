@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	null  = 0x00
-	blank = 0x20
+	null    = 0x00
+	blank   = 0x20
+	deleted = 0x2A
 )
 
 //DbfTable describe dbf file
@@ -360,13 +361,12 @@ func (dt *DbfTable) HasField(fieldName string) bool {
 // FieldIdx returns field index if the table has a field with the given name
 // If the field does not exist an error is returned.
 func (dt *DbfTable) FieldIdx(fieldName string) (int, error) {
-
 	for i := 0; i < len(dt.fields); i++ {
 		if dt.fields[i].name == fieldName {
 			return i, nil
 		}
 	}
-	return -1, errors.New("Field name \"" + fieldName + "\" not exists!")
+	return -1, errors.New("Field name \"" + fieldName + "\" not exists")
 }
 
 // DecimalPlacesInField returns the number of decimal places for the field with the given name.
@@ -555,20 +555,30 @@ func (dt *DbfTable) FieldValueByName(row int, fieldName string) (value string, e
 
 //RowIsDeleted returns whether a row has marked as deleted
 func (dt *DbfTable) RowIsDeleted(row int) bool {
+	if row < 0 || row >= int(dt.NumberOfRecords()) {
+		return false
+	}
 	offset := int(dt.numberOfBytesInHeader)
 	lengthOfRecord := int(dt.lengthOfEachRecord)
 	offset = offset + (row * lengthOfRecord)
-	return dt.dataStore[offset:(offset + 1)][0] == 0x2A
+	return dt.dataStore[offset:(offset + 1)][0] == deleted
+}
+
+//DeleteRow deleted row by num
+func (dt *DbfTable) DeleteRow(row int) error {
+	if row < 0 || row >= int(dt.NumberOfRecords()) {
+		return errors.New("Out of range")
+	}
+	offset := int(dt.numberOfBytesInHeader) + (row * int(dt.lengthOfEachRecord))
+	dt.dataStore[offset:(offset + 1)][0] = deleted
+	return nil
 }
 
 // GetRowAsSlice return the record values for the row specified as a string slice
 func (dt *DbfTable) GetRowAsSlice(row int) []string {
-
 	s := make([]string, len(dt.Fields()))
-
 	for i := 0; i < len(dt.Fields()); i++ {
 		s[i] = dt.FieldValue(row, i)
 	}
-
 	return s
 }
