@@ -2,14 +2,15 @@ package godbf
 
 import (
 	"encoding/csv"
+	"io"
 	"os"
+	"strconv"
 	"strings"
-
-	"golang.org/x/text/encoding/charmap"
 
 	"github.com/axgle/mahonia"
 )
 
+//NewFromFile create in-memory dbf from file on disk
 func NewFromFile(fileName string, fileEncoding string) (table *DbfTable, err error) {
 	if s, err := readFile(fileName); err == nil {
 		return createDbfTable(s, fileEncoding)
@@ -17,8 +18,66 @@ func NewFromFile(fileName string, fileEncoding string) (table *DbfTable, err err
 	return
 }
 
+//NewFromByteArray create dbf from byte array
 func NewFromByteArray(data []byte, fileEncoding string) (table *DbfTable, err error) {
 	return createDbfTable(data, fileEncoding)
+}
+
+//NewFromSchema create schema-based dbf
+func NewFromSchema(schema []DbfSchema, fileEncoding string) (table *DbfTable, err error) {
+	table = New(fileEncoding)
+	err = table.AddSchema(schema)
+	return
+}
+
+//NewFromCSVWithSchema create schema-based dbf and fill it from csv file
+func NewFromCSVWithSchema(filename string, codepage string, headers bool, skip int, comma rune, schema []DbfSchema, fileEncoding string) (table *DbfTable, err error) {
+	table, err = NewFromSchema(schema, fileEncoding)
+	if err != nil {
+		return
+	}
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	decoder := mahonia.NewDecoder(codepage)
+	r := csv.NewReader(decoder.NewReader(f))
+	r.Comma = comma
+	var header []string
+	for {
+		if skip >= 0 {
+			r.FieldsPerRecord = 0
+		}
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if header == nil && headers {
+			header = record
+			continue
+		}
+		if skip--; skip >= 0 {
+			continue
+		}
+
+		if !headers {
+			for i := 0; i <= len(record); i++ {
+				header = append(header, "F"+strconv.Itoa(i+1))
+			}
+		}
+
+		recno := table.AddNewRecord()
+		for i := range record {
+			table.SetFieldValueByName(recno, header[i], record[i])
+		}
+
+	}
+	return table, nil
 }
 
 func createDbfTable(s []byte, fileEncoding string) (table *DbfTable, err error) {
@@ -93,30 +152,22 @@ func createDbfTable(s []byte, fileEncoding string) (table *DbfTable, err error) 
 	return dt, nil
 }
 
+//SaveFile save file on disk
 func (dt *DbfTable) SaveFile(filename string) (err error) {
-
 	f, err := os.Create(filename)
-
 	if err != nil {
 		return err
 	}
-
 	defer f.Close()
 
-	_, dsErr := f.Write(dt.dataStore)
-
-	if dsErr != nil {
+	if _, dsErr := f.Write(dt.dataStore); dsErr != nil {
 		return dsErr
 	}
 
 	// Add dbase end of file marker (1Ah)
-
-	_, footerErr := f.Write([]byte{0x1A})
-
-	if footerErr != nil {
+	if _, footerErr := f.Write([]byte{0x1A}); footerErr != nil {
 		return footerErr
 	}
-
 	return
 }
 
@@ -133,8 +184,8 @@ func (dt *DbfTable) SaveCSV(filename string, delimiter rune, headers bool) (err 
 		}
 	}()
 
-	encoder := charmap.Windows1251.NewEncoder()
-	w := csv.NewWriter(encoder.Writer(f))
+	//encoder := charmap.Windows1251.NewEncoder()
+	w := csv.NewWriter(f /*encoder.Writer(f)*/)
 	w.Comma = delimiter
 	if headers {
 		fields := dt.Fields()

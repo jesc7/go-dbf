@@ -7,6 +7,7 @@ type FieldDescriptor struct {
 	length        byte
 	decimalPlaces byte
 	fieldStore    [32]byte
+	format        string
 }
 
 // Name returns the column name of the field
@@ -19,14 +20,19 @@ func (fd *FieldDescriptor) FieldType() DbaseDataType {
 	return fd.fieldType
 }
 
-// FieldType returns the fixedFieldLength of data stored for the field
+// Length returns the fixedFieldLength of data stored for the field
 func (fd *FieldDescriptor) Length() byte {
 	return fd.length
 }
 
-// FieldType returns the count of decimal places for the field
+// DecimalCount returns the count of decimal places for the field
 func (fd *FieldDescriptor) DecimalCount() byte {
 	return fd.decimalPlaces
+}
+
+// Format returns the format of data stored for the field
+func (fd *FieldDescriptor) Format() string {
+	return fd.format
 }
 
 func (fd FieldDescriptor) usesDecimalPlaces() bool {
