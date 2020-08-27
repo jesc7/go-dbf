@@ -145,7 +145,7 @@ func (dt *DbfTable) AddSchema(sch []DbfSchema) (err error) {
 			case Character:
 				err = dt.AddTextField(f.FieldName, f.FieldLength)
 			case Date:
-				err = dt.AddDateField(f.FieldName)
+				err = dt.AddDateField(f.FieldName, f.Format)
 			case Float:
 				err = dt.AddFloatField(f.FieldName, f.FieldLength, f.DecimalPlaces)
 			case Logical:
@@ -167,7 +167,7 @@ func (dt *DbfTable) AddFieldAs(src *FieldDescriptor, name string) (err error) {
 	case Character:
 		err = dt.AddTextField(name, src.Length())
 	case Date:
-		err = dt.AddDateField(name)
+		err = dt.AddDateField(name, src.Format())
 	case Float:
 		err = dt.AddFloatField(name, src.Length(), src.DecimalCount())
 	case Logical:
@@ -182,26 +182,26 @@ func (dt *DbfTable) AddFieldAs(src *FieldDescriptor, name string) (err error) {
 }
 
 func (dt *DbfTable) AddBooleanField(fieldName string) (err error) {
-	return dt.addField(fieldName, Logical, Logical.fixedFieldLength(), Logical.decimalCountNotApplicable())
+	return dt.addField(fieldName, Logical, Logical.fixedFieldLength(), Logical.decimalCountNotApplicable(), "")
 }
 
-func (dt *DbfTable) AddDateField(fieldName string) (err error) {
-	return dt.addField(fieldName, Date, Date.fixedFieldLength(), Date.decimalCountNotApplicable())
+func (dt *DbfTable) AddDateField(fieldName string, format string) (err error) {
+	return dt.addField(fieldName, Date, Date.fixedFieldLength(), Date.decimalCountNotApplicable(), format)
 }
 
 func (dt *DbfTable) AddTextField(fieldName string, length byte) (err error) {
-	return dt.addField(fieldName, Character, length, Character.decimalCountNotApplicable())
+	return dt.addField(fieldName, Character, length, Character.decimalCountNotApplicable(), "")
 }
 
 func (dt *DbfTable) AddNumberField(fieldName string, length byte, decimalPlaces uint8) (err error) {
-	return dt.addField(fieldName, Numeric, length, decimalPlaces)
+	return dt.addField(fieldName, Numeric, length, decimalPlaces, "")
 }
 
 func (dt *DbfTable) AddFloatField(fieldName string, length byte, decimalPlaces uint8) (err error) {
-	return dt.addField(fieldName, Float, length, decimalPlaces)
+	return dt.addField(fieldName, Float, length, decimalPlaces, "")
 }
 
-func (dt *DbfTable) addField(fieldName string, fieldType DbaseDataType, length byte, decimalPlaces uint8) (err error) {
+func (dt *DbfTable) addField(fieldName string, fieldType DbaseDataType, length byte, decimalPlaces uint8, format string) (err error) {
 
 	if dt.dataEntryStarted {
 		return errors.New("Once you start entering data to the dbase table or open an existing dbase file, altering dbase table schema is not allowed!")
@@ -218,6 +218,7 @@ func (dt *DbfTable) addField(fieldName string, fieldType DbaseDataType, length b
 	df.fieldType = fieldType
 	df.length = length
 	df.decimalPlaces = decimalPlaces
+	df.format = format
 
 	slice := dt.convertToByteSlice(df.name, 10)
 
@@ -432,20 +433,12 @@ func (dt *DbfTable) SetFieldValueByName(row int, fieldName string, value string)
 func (dt *DbfTable) SetFieldValue(row int, fieldIndex int, value string) (err error) {
 
 	b := []byte(dt.encoder.ConvertString(value))
-
 	fieldLength := int(dt.fields[fieldIndex].length)
-
-	//DEBUG
-
-	//fmt.Printf("dt.numberOfBytesInHeader=%v\n\n", dt.numberOfBytesInHeader)
-	//fmt.Printf("dt.lengthOfEachRecord=%v\n\n", dt.lengthOfEachRecord)
 
 	// locate the offset of the field in DbfTable dataStore
 	offset := int(dt.numberOfBytesInHeader)
 	lengthOfRecord := int(dt.lengthOfEachRecord)
-
 	offset = offset + (row * lengthOfRecord)
-
 	recordOffset := 1
 
 	for i := 0; i < len(dt.fields); i++ {
@@ -460,13 +453,25 @@ func (dt *DbfTable) SetFieldValue(row int, fieldIndex int, value string) (err er
 
 	// write new value
 	switch dt.fields[fieldIndex].fieldType {
-	case Character, Logical, Date:
+	case Character, Logical:
+		for i := 0; i < len(b) && i < fieldLength; i++ {
+			dt.dataStore[offset+recordOffset+i] = b[i]
+		}
+	case Date:
+		switch dt.fields[fieldIndex].format {
+		case "RFC3339":
+			t, _ := time.Parse(time.RFC3339, value)
+			value = t.Format("20060102")
+		case "02.01.2006":
+			t, _ := time.Parse("02.01.2006", value)
+			value = t.Format("20060102")
+		}
+		b = []byte(dt.encoder.ConvertString(value))
 		for i := 0; i < len(b) && i < fieldLength; i++ {
 			dt.dataStore[offset+recordOffset+i] = b[i]
 		}
 	case Float, Numeric:
 		for i := 0; i < fieldLength; i++ {
-			// fmt.Printf("i:%v\n", i)
 			if i < len(b) {
 				dt.dataStore[offset+recordOffset+(fieldLength-i-1)] = b[(len(b)-1)-i]
 			} else {
@@ -474,13 +479,7 @@ func (dt *DbfTable) SetFieldValue(row int, fieldIndex int, value string) (err er
 			}
 		}
 	}
-
 	return
-
-	//fmt.Printf("field value:%#v\n", []byte(value))
-	//fmt.Printf("field index:%#v\n", fieldIndex)
-	//fmt.Printf("field fixedFieldLength:%v\n", dt.Fields[fieldIndex].fixedFieldLength)
-	//fmt.Printf("string to byte:%#v\n", b)
 }
 
 func (dt *DbfTable) fillFieldWithBlanks(fieldLength int, offset int, recordOffset int) {

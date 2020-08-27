@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/axgle/mahonia"
 )
@@ -57,15 +58,15 @@ func NewFromCSVWithSchema(filename string, codepage string, headers bool, skip i
 		if err != nil {
 			return nil, err
 		}
-		if header == nil && headers {
-			header = record
-			continue
-		}
 		if skip--; skip >= 0 {
 			continue
 		}
 
-		if !headers {
+		if header == nil {
+			if headers {
+				header = record
+				continue
+			}
 			for i := 0; i <= len(record); i++ {
 				header = append(header, "F"+strconv.Itoa(i+1))
 			}
@@ -75,7 +76,6 @@ func NewFromCSVWithSchema(filename string, codepage string, headers bool, skip i
 		for i := range record {
 			table.SetFieldValueByName(recno, header[i], record[i])
 		}
-
 	}
 	return table, nil
 }
@@ -122,25 +122,14 @@ func createDbfTable(s []byte, fileEncoding string) (table *DbfTable, err error) 
 		case 'L':
 			err = dt.AddBooleanField(fieldName)
 		case 'D':
-			err = dt.AddDateField(fieldName)
+			err = dt.AddDateField(fieldName, "")
 		}
 
 		// Check return value for errors
 		if err != nil {
 			return nil, err
 		}
-
-		//fmt.Printf("Field name:%v\n", name)
-		//fmt.Printf("Field data type:%v\n", string(s[offset+11]))
-		//fmt.Printf("Field fixedFieldLength:%v\n", s[offset+16])
-		//fmt.Println("-----------------------------------------------")
 	}
-
-	//fmt.Printf("DbfReader:\n%#v\n", dt)
-	//fmt.Printf("DbfReader:\n%#v\n", int(dt.Fields[2].fixedFieldLength))
-
-	//fmt.Printf("num records in table:%v\n", (dt.numberOfRecords))
-	//fmt.Printf("fixedFieldLength of each record:%v\n", (dt.lengthOfEachRecord))
 
 	// Since we are reading dbase file from the disk at least at this
 	// phase changing schema of dbase file is not allowed.
@@ -172,7 +161,7 @@ func (dt *DbfTable) SaveFile(filename string) (err error) {
 }
 
 //SaveCSV translate dbf to csv format
-func (dt *DbfTable) SaveCSV(filename string, delimiter rune, headers bool) (err error) {
+func (dt *DbfTable) SaveCSV(filename string, codepage string, delimiter rune, headers bool) (err error) {
 	f, err := os.Create(filename)
 	if err != nil {
 		return err
@@ -184,8 +173,8 @@ func (dt *DbfTable) SaveCSV(filename string, delimiter rune, headers bool) (err 
 		}
 	}()
 
-	//encoder := charmap.Windows1251.NewEncoder()
-	w := csv.NewWriter(f /*encoder.Writer(f)*/)
+	encoder := mahonia.NewEncoder(codepage)
+	w := csv.NewWriter(encoder.NewWriter(f))
 	w.Comma = delimiter
 	if headers {
 		fields := dt.Fields()
@@ -201,6 +190,17 @@ func (dt *DbfTable) SaveCSV(filename string, delimiter rune, headers bool) (err 
 
 	for i := 0; i < dt.NumberOfRecords(); i++ {
 		row := dt.GetRowAsSlice(i)
+		for j := range row {
+			switch string(dt.fields[j].fieldType) + "_" + dt.fields[j].format {
+			case "D_RFC3339":
+				t, _ := time.Parse("20060102", row[j])
+				row[j] = t.Format(time.RFC3339)
+			case "D_02.01.2006":
+				t, _ := time.Parse("20060102", row[j])
+				row[j] = t.Format("02.01.2006")
+			}
+		}
+
 		if err := w.Write(row); err != nil {
 			return err
 		}
