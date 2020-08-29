@@ -12,28 +12,28 @@ import (
 )
 
 //NewFromFile create in-memory dbf from file on disk
-func NewFromFile(fileName string, fileEncoding string) (table *DbfTable, err error) {
+func NewFromFile(fileName string, codepage string) (table *DbfTable, err error) {
 	if s, err := readFile(fileName); err == nil {
-		return createDbfTable(s, fileEncoding)
+		return createDbfTable(s, codepage)
 	}
 	return
 }
 
 //NewFromByteArray create dbf from byte array
-func NewFromByteArray(data []byte, fileEncoding string) (table *DbfTable, err error) {
-	return createDbfTable(data, fileEncoding)
+func NewFromByteArray(data []byte, codepage string) (table *DbfTable, err error) {
+	return createDbfTable(data, codepage)
 }
 
 //NewFromSchema create schema-based dbf
-func NewFromSchema(schema []DbfSchema, fileEncoding string) (table *DbfTable, err error) {
-	table = New(fileEncoding)
+func NewFromSchema(schema []DbfSchema, codepage string) (table *DbfTable, err error) {
+	table = New(codepage)
 	err = table.AddSchema(schema)
 	return
 }
 
 //NewFromCSVWithSchema create schema-based dbf and fill it from csv file
-func NewFromCSVWithSchema(filename string, codepage string, headers bool, skip int, comma rune, schema []DbfSchema, fileEncoding string) (table *DbfTable, err error) {
-	table, err = NewFromSchema(schema, fileEncoding)
+func NewFromCSVWithSchema(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+	table, err = NewFromSchema(schema, codepageTo)
 	if err != nil {
 		return
 	}
@@ -43,8 +43,7 @@ func NewFromCSVWithSchema(filename string, codepage string, headers bool, skip i
 	}
 	defer f.Close()
 
-	decoder := mahonia.NewDecoder(codepage)
-	r := csv.NewReader(decoder.NewReader(f))
+	r := csv.NewReader(mahonia.NewDecoder(codepageFrom).NewReader(f))
 	r.Comma = comma
 	var header []string
 	for {
@@ -80,13 +79,13 @@ func NewFromCSVWithSchema(filename string, codepage string, headers bool, skip i
 	return table, nil
 }
 
-func createDbfTable(s []byte, fileEncoding string) (table *DbfTable, err error) {
+func createDbfTable(s []byte, codepage string) (table *DbfTable, err error) {
 	// Create and populate DbaseTable struct
 	dt := new(DbfTable)
 
-	dt.fileEncoding = fileEncoding
-	dt.encoder = mahonia.NewEncoder(fileEncoding)
-	dt.decoder = mahonia.NewDecoder(fileEncoding)
+	dt.fileEncoding = codepage
+	dt.encoder = mahonia.NewEncoder(codepage)
+	dt.decoder = mahonia.NewDecoder(codepage)
 
 	// read dbase table header information
 	dt.fileSignature = s[0]
@@ -161,7 +160,7 @@ func (dt *DbfTable) SaveFile(filename string) (err error) {
 }
 
 //SaveCSV translate dbf to csv format
-func (dt *DbfTable) SaveCSV(filename string, codepage string, delimiter rune, headers bool) (err error) {
+func (dt *DbfTable) SaveCSV(filename string, codepage string, comma rune, headers bool) (err error) {
 	f, err := os.Create(filename)
 	if err != nil {
 		return err
@@ -173,9 +172,8 @@ func (dt *DbfTable) SaveCSV(filename string, codepage string, delimiter rune, he
 		}
 	}()
 
-	encoder := mahonia.NewEncoder(codepage)
-	w := csv.NewWriter(encoder.NewWriter(f))
-	w.Comma = delimiter
+	w := csv.NewWriter(mahonia.NewEncoder(codepage).NewWriter(f))
+	w.Comma = comma
 	if headers {
 		fields := dt.Fields()
 		fieldRow := make([]string, len(fields))
