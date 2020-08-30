@@ -458,17 +458,19 @@ func (dt *DbfTable) SetFieldValue(row int, fieldIndex int, value string) (err er
 			dt.dataStore[offset+recordOffset+i] = b[i]
 		}
 	case Date:
-		switch dt.fields[fieldIndex].format {
-		case "RFC3339":
-			t, _ := time.Parse(time.RFC3339, value)
-			value = t.Format("20060102")
-		case "02.01.2006":
-			t, _ := time.Parse("02.01.2006", value)
-			value = t.Format("20060102")
-		}
-		b = []byte(dt.encoder.ConvertString(value))
-		for i := 0; i < len(b) && i < fieldLength; i++ {
-			dt.dataStore[offset+recordOffset+i] = b[i]
+		if value != "" {
+			switch dt.fields[fieldIndex].format {
+			case "RFC3339":
+				t, _ := time.Parse(time.RFC3339, value)
+				value = t.Format("20060102")
+			case "02.01.2006":
+				t, _ := time.Parse("02.01.2006", value)
+				value = t.Format("20060102")
+			}
+			b = []byte(dt.encoder.ConvertString(value))
+			for i := 0; i < len(b) && i < fieldLength; i++ {
+				dt.dataStore[offset+recordOffset+i] = b[i]
+			}
 		}
 	case Float, Numeric:
 		for i := 0; i < fieldLength; i++ {

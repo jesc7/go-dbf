@@ -1,8 +1,10 @@
 package godbf
 
 import (
+	"bytes"
 	"encoding/csv"
 	"io"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -31,6 +33,16 @@ func NewFromSchema(schema []DbfSchema, codepage string) (table *DbfTable, err er
 	return
 }
 
+type QuoteReader struct {
+	r io.Reader
+}
+
+func (qr QuoteReader) Read(p []byte) (i int, err error) {
+	i, err = qr.r.Read(p)
+	bytes.ReplaceAll(qr.r.Read(p), []byte('"'), []byte('`'))
+	return
+}
+
 //NewFromCSVWithSchema create schema-based dbf and fill it from csv file
 func NewFromCSVWithSchema(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
 	table, err = NewFromSchema(schema, codepageTo)
@@ -44,6 +56,7 @@ func NewFromCSVWithSchema(filename string, codepageFrom string, headers bool, sk
 	defer f.Close()
 
 	r := csv.NewReader(mahonia.NewDecoder(codepageFrom).NewReader(f))
+	r.LazyQuotes = true
 	r.Comma = comma
 	var header []string
 	for {
@@ -72,6 +85,7 @@ func NewFromCSVWithSchema(filename string, codepageFrom string, headers bool, sk
 		}
 
 		recno := table.AddNewRecord()
+		log.Println(recno)
 		for i := range record {
 			table.SetFieldValueByName(recno, header[i], record[i])
 		}
