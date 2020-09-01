@@ -74,7 +74,25 @@ func NewFromCSVWithSchema(filename string, codepageFrom string, headers bool, sk
 
 		recno := table.AddNewRecord()
 		for i := range record {
-			table.SetFieldValueByName(recno, header[i], record[i])
+			j, err := table.FieldIdx(header[i])
+			if err != nil {
+				continue
+			}
+			value := record[i]
+			switch table.fields[j].fieldType {
+			case Date:
+				if value != "" {
+					switch table.fields[j].format {
+					case "RFC3339":
+						t, _ := time.Parse(time.RFC3339, value)
+						value = t.Format("20060102")
+					case "02.01.2006":
+						t, _ := time.Parse("02.01.2006", value)
+						value = t.Format("20060102")
+					}
+				}
+			}
+			table.SetFieldValueByName(recno, header[i], value)
 		}
 	}
 	return table, nil
