@@ -336,6 +336,18 @@ func (dt *DbfTable) Fields() []FieldDescriptor {
 	return dt.fields
 }
 
+// FieldByName return the field descriptor of the table
+func (dt *DbfTable) FieldByName(fieldName string) FieldDescriptor {
+
+	for i := 0; i < len(dt.fields); i++ {
+		if dt.fields[i].name == fieldName {
+			return dt.fields[i]
+		}
+	}
+
+	return FieldDescriptor{}
+}
+
 // FieldNames return the names of fields in the table as a slice
 func (dt *DbfTable) FieldNames() []string {
 	names := make([]string, 0)
