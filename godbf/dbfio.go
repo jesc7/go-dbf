@@ -13,7 +13,8 @@ import (
 
 //NewFromFile create in-memory dbf from file on disk
 func NewFromFile(fileName string, codepage string) (table *DbfTable, err error) {
-	if s, err := readFile(fileName); err == nil {
+	s, err := readFile(fileName)
+	if err == nil {
 		return createDbfTable(s, codepage)
 	}
 	return
