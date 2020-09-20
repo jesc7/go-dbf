@@ -2,6 +2,7 @@ package godbf
 
 import (
 	"encoding/csv"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/axgle/mahonia"
+	"github.com/sergeilem/xls"
 )
 
 //NewFromFile create in-memory dbf from file on disk
@@ -32,7 +34,52 @@ func NewFromSchema(schema []DbfSchema, codepage string) (table *DbfTable, err er
 	return
 }
 
-//NewFromCSVWithSchema create schema-based dbf and fill it from csv file
+//NewFromDBF recreate dbf, aliases and field restrictions are supperted
+func NewFromDBF(filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+	table, err = NewFromSchema(schema, codepageTo)
+	if err != nil {
+		return
+	}
+	src, err := NewFromFile(filename, codepageFrom)
+	if err != nil {
+		return nil, err
+	}
+
+	aliases := make(map[string]string)
+	for _, v := range src.fields {
+		aliases[v.name] = v.name
+	}
+	for _, v := range schema {
+		if len(v.Alias) != 0 {
+			if _, found := aliases[v.Alias]; found {
+				aliases[v.Alias] = v.FieldName
+			}
+		}
+	}
+	var found bool
+	for _, v := range aliases {
+		if found = table.HasField(v); found {
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("No destination field in schema, will be empty result")
+	}
+	for i := 0; i < int(src.numberOfRecords); i++ {
+		recno := table.AddNewRecord()
+		for _, v := range src.fields {
+			v2 := aliases[v.name]
+			if j, _ := table.FieldIdx(v2); j != -1 {
+				value, _ := src.FieldValueByName(recno, v.name)
+				value = formatValue(table.fields[j], value)
+				table.SetFieldValue(recno, j, value)
+			}
+		}
+	}
+	return table, nil
+}
+
+//NewFromCSV create schema-based dbf and fill it from csv file
 func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
 	table, err = NewFromSchema(schema, codepageTo)
 	if err != nil {
@@ -45,18 +92,12 @@ func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, co
 	defer f.Close()
 
 	aliases := make(map[string]string)
-	for _, v := range schema {
-		if len(v.FieldAlias) != 0 {
-			aliases[v.FieldAlias] = v.FieldName
-		}
-	}
-
 	r := csv.NewReader(mahonia.NewDecoder(codepageFrom).NewReader(f))
 	r.LazyQuotes = true
 	r.Comma = comma
 	var (
-		header   []string
-		bAliases bool
+		header      []string
+		fillAliases bool
 	)
 	for {
 		if skip >= 0 {
@@ -82,13 +123,27 @@ func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, co
 				header = append(header, "F"+strconv.Itoa(i+1))
 			}
 		}
-		if !bAliases {
-			for _, s := range header {
-				if _, found := aliases[s]; !found {
-					aliases[s] = s
+		if !fillAliases {
+			for _, v := range header {
+				aliases[v] = v
+			}
+			for _, v := range schema {
+				if len(v.Alias) != 0 {
+					if _, found := aliases[v.Alias]; found {
+						aliases[v.Alias] = v.FieldName
+					}
 				}
 			}
-			bAliases = true
+			var found bool
+			for _, v := range aliases {
+				if found = table.HasField(v); found {
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("No destination field in schema, will be empty result")
+			}
+			fillAliases = true
 		}
 
 		recno := table.AddNewRecord()
@@ -98,25 +153,81 @@ func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, co
 				if err != nil {
 					continue
 				}
-				value := record[i]
-				switch table.fields[j].fieldType {
-				case Date:
-					if value != "" {
-						switch table.fields[j].format {
-						case "RFC3339":
-							t, _ := time.Parse(time.RFC3339, value)
-							value = t.Format("20060102")
-						case "02.01.2006":
-							t, _ := time.Parse("02.01.2006", value)
-							value = t.Format("20060102")
-						}
-					}
-				}
+				value := formatValue(table.fields[j], record[i])
 				table.SetFieldValue(recno, j, value)
 			}
 		}
 	}
 	return table, nil
+}
+
+//NewFromXLS create schema-based dbf from excel file
+func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, skip int, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+	table, err = NewFromSchema(schema, codepageTo)
+	if err != nil {
+		return
+	}
+	xl, err := xls.Open(filename, codepageFrom)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := 0; i < xl.NumSheets(); i++ {
+		sh := xl.GetSheet(i)
+		if strings.EqualFold(sh.Name, sheet) {
+			aliases := make(map[string]string)
+			var header []string
+			for j := 1 + skip; j <= int(sh.MaxRow); j++ {
+				r := sh.Row(j)
+				if _, err := strconv.ParseFloat(r.Col(keycolumn), 64); err != nil {
+					continue
+				}
+				record := make([]string, r.FirstCol())
+				for k := r.FirstCol(); k <= r.LastCol(); k++ {
+					record = append(record, r.Col(k))
+				}
+
+				if header == nil {
+					for k := range record {
+						header = append(header, "F"+strconv.Itoa(k+1))
+					}
+					for _, v := range header {
+						aliases[v] = v
+					}
+					for _, v := range schema {
+						if len(v.Alias) != 0 {
+							if _, found := aliases[v.Alias]; found {
+								aliases[v.Alias] = v.FieldName
+							}
+						}
+					}
+					var found bool
+					for _, v := range aliases {
+						if found = table.HasField(v); found {
+							break
+						}
+					}
+					if !found {
+						return nil, fmt.Errorf("No destination field in schema, will be empty result")
+					}
+				}
+
+				recno := table.AddNewRecord()
+				for k := range record {
+					if k < len(header) {
+						l, err := table.FieldIdx(aliases[header[k]])
+						if err != nil {
+							continue
+						}
+						value := formatValue(table.fields[l], record[k])
+						table.SetFieldValue(recno, l, value)
+					}
+				}
+			}
+			return table, nil
+		}
+	}
+	return nil, fmt.Errorf("No sheet named %s", sheet)
 }
 
 func createDbfTable(s []byte, codepage string) (table *DbfTable, err error) {

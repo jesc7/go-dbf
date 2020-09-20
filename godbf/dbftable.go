@@ -2,6 +2,7 @@ package godbf
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -60,7 +61,7 @@ type DbfTable struct {
 //DbfSchema describe table fields
 type DbfSchema struct {
 	FieldName     string `json:"FieldName"`
-	FieldAlias    string `json:"FieldAlias"`
+	Alias         string `json:"Alias"`
 	DataType      string `json:"DataType"`
 	FieldLength   byte   `json:"FieldLength"`
 	DecimalPlaces uint8  `json:"DecimalPlaces"`
@@ -581,4 +582,35 @@ func (dt *DbfTable) GetRowAsSlice(row int) []string {
 		s[i] = dt.FieldValue(row, i)
 	}
 	return s
+}
+
+func formatValue(f FieldDescriptor, value string) string {
+	left := func(str string, length int) string {
+		runes := []rune(str)
+		if len(runes) > length {
+			return string(runes[:length])
+		}
+		return str
+	}
+
+	if value != "" {
+		switch f.fieldType {
+		case 'C':
+			value = left(value, int(f.length))
+		case 'N':
+			if n, err := strconv.ParseFloat(value, 32); err == nil {
+				value = fmt.Sprintf("%."+strconv.Itoa(int(f.decimalPlaces))+"f", n)
+			}
+		case 'D':
+			switch f.format {
+			case "RFC3339":
+				t, _ := time.Parse(time.RFC3339, value)
+				value = t.Format("20060102")
+			case "02.01.2006":
+				t, _ := time.Parse("02.01.2006", value)
+				value = t.Format("20060102")
+			}
+		}
+	}
+	return value
 }
