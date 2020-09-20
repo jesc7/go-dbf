@@ -33,7 +33,7 @@ func NewFromSchema(schema []DbfSchema, codepage string) (table *DbfTable, err er
 }
 
 //NewFromCSVWithSchema create schema-based dbf and fill it from csv file
-func NewFromCSVWithSchema(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
 	table, err = NewFromSchema(schema, codepageTo)
 	if err != nil {
 		return
@@ -44,10 +44,20 @@ func NewFromCSVWithSchema(filename string, codepageFrom string, headers bool, sk
 	}
 	defer f.Close()
 
+	aliases := make(map[string]string)
+	for _, v := range schema {
+		if len(v.FieldAlias) != 0 {
+			aliases[v.FieldAlias] = v.FieldName
+		}
+	}
+
 	r := csv.NewReader(mahonia.NewDecoder(codepageFrom).NewReader(f))
 	r.LazyQuotes = true
 	r.Comma = comma
-	var header []string
+	var (
+		header   []string
+		bAliases bool
+	)
 	for {
 		if skip >= 0 {
 			r.FieldsPerRecord = 0
@@ -72,11 +82,19 @@ func NewFromCSVWithSchema(filename string, codepageFrom string, headers bool, sk
 				header = append(header, "F"+strconv.Itoa(i+1))
 			}
 		}
+		if !bAliases {
+			for _, s := range header {
+				if _, found := aliases[s]; !found {
+					aliases[s] = s
+				}
+			}
+			bAliases = true
+		}
 
 		recno := table.AddNewRecord()
 		for i := range record {
 			if i < len(header) {
-				j, err := table.FieldIdx(header[i])
+				j, err := table.FieldIdx(aliases[header[i]])
 				if err != nil {
 					continue
 				}
@@ -94,7 +112,7 @@ func NewFromCSVWithSchema(filename string, codepageFrom string, headers bool, sk
 						}
 					}
 				}
-				table.SetFieldValueByName(recno, header[i], value)
+				table.SetFieldValue(recno, j, value)
 			}
 		}
 	}
