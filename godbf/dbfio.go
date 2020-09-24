@@ -2,6 +2,8 @@ package godbf
 
 import (
 	"encoding/csv"
+	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/axgle/mahonia"
 	"github.com/sergeilem/xls"
+	"golang.org/x/net/html/charset"
 )
 
 //NewFromFile create in-memory dbf from file on disk
@@ -228,6 +231,85 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 		}
 	}
 	return nil, fmt.Errorf("No sheet named %s", sheet)
+}
+
+//NewFromXML create dbf from XML
+func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+	table, err = NewFromSchema(schema, codepageTo)
+	if err != nil {
+		return
+	}
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	aliases := make(map[string]string)
+	for _, v := range schema {
+		if len(v.Alias) != 0 {
+			aliases[v.Alias] = v.FieldName
+		}
+	}
+	r := xml.NewDecoder(f)
+	r.CharsetReader = charset.NewReaderLabel
+	//r := xml.NewDecoder(mahonia.NewDecoder(codepageFrom).NewReader(f))
+
+	var (
+		recno     int
+		curtag    string
+		errExists bool
+		errText   string
+		startData bool
+	)
+	for {
+		token, _ := r.Token()
+		if token == nil {
+			break
+		}
+
+		switch t := token.(type) {
+		case xml.StartElement:
+			if errExists && len(errText) > 0 {
+				return nil, errors.New(errText)
+			}
+
+			curtag = strings.ToLower(t.Name.Local)
+			if v, found := aliases[curtag+":"]; found && v == "__NEW" {
+				//tag with attributes
+				startData = true
+				recno = table.AddNewRecord()
+				for _, a := range t.Attr {
+					tag := curtag + ":" + a.Name.Local
+					if v2, found2 := aliases[tag]; found2 && v2 != "__NEW" && v2 != "" && a.Value != "\n\t" {
+						table.SetFieldValueByName(recno, v2, a.Value)
+					}
+				}
+			} else if v, found := aliases[curtag]; found && v == "__NEW" {
+				//tag content
+				startData = true
+				recno = table.AddNewRecord()
+			}
+		case xml.CharData:
+			if curtag != "" {
+				if v, found := aliases[curtag]; found && (v == "__ERR" || v == "__ERRTEXT") {
+					if v == "__ERR" /*&& m.Default == string(t)*/ {
+						errExists = true
+					} else if v == "__ERRTEXT" {
+						errText = string(t)
+					}
+				} else {
+					if startData {
+						if v2, found2 := aliases[curtag]; found2 && v2 != "__NEW" && v2 != "" && string(t) != "\n\t" {
+							table.SetFieldValueByName(recno, v2, string(t))
+						}
+					}
+				}
+				curtag = ""
+			}
+		}
+	}
+	return table, nil
 }
 
 func createDbfTable(s []byte, codepage string) (table *DbfTable, err error) {
