@@ -66,6 +66,7 @@ type DbfSchema struct {
 	FieldLength   byte   `json:"FieldLength"`
 	DecimalPlaces uint8  `json:"DecimalPlaces"`
 	Format        string `json:"Format"`
+	Default       string `json:"Default"`
 }
 
 // New creates a new dbase table from scratch for the given character encoding

@@ -245,23 +245,32 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 	}
 	defer f.Close()
 
-	aliases := make(map[string]string)
-	for _, v := range schema {
-		if len(v.Alias) != 0 {
-			aliases[v.Alias] = v.FieldName
-		}
-	}
 	r := xml.NewDecoder(f)
 	r.CharsetReader = charset.NewReaderLabel
-	//r := xml.NewDecoder(mahonia.NewDecoder(codepageFrom).NewReader(f))
 
+	aliases := make(map[string]DbfSchema)
+	for _, v := range schema {
+		if len(v.Alias) != 0 {
+			aliases[strings.ToLower(v.Alias)] = v
+		}
+	}
 	var (
-		recno     int
 		curtag    string
 		errExists bool
 		errText   string
-		startData bool
 	)
+	recno := -1
+
+	addNew := func() (rec int, err error) {
+		if errExists {
+			if len(errText) > 0 {
+				return -1, errors.New(errText)
+			}
+			return -1, errors.New("Unknown error")
+		}
+		return table.AddNewRecord(), nil
+	}
+
 	for {
 		token, _ := r.Token()
 		if token == nil {
@@ -275,39 +284,42 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 			}
 
 			curtag = strings.ToLower(t.Name.Local)
-			if v, found := aliases[curtag+":"]; found && v == "__NEW" {
-				//tag with attributes
-				startData = true
-				recno = table.AddNewRecord()
+			if v, found := aliases[curtag+":"]; found && v.FieldName == "__NEW" {
+				if recno, err = addNew(); err != nil {
+					return nil, err
+				}
 				for _, a := range t.Attr {
-					tag := curtag + ":" + a.Name.Local
-					if v2, found2 := aliases[tag]; found2 && v2 != "__NEW" && v2 != "" && a.Value != "\n\t" {
-						table.SetFieldValueByName(recno, v2, a.Value)
+					if v, found = aliases[curtag+":"+a.Name.Local]; found && v.FieldName != "__NEW" && v.FieldName != "" && a.Value != "\n\t" {
+						l, _ := table.FieldIdx(v.FieldName)
+						value := formatValue(table.fields[l], a.Value)
+						table.SetFieldValue(recno, l, value)
 					}
 				}
-			} else if v, found := aliases[curtag]; found && v == "__NEW" {
-				//tag content
-				startData = true
-				recno = table.AddNewRecord()
+			} else if v, found := aliases[curtag]; found && v.FieldName == "__NEW" {
+				if recno, err = addNew(); err != nil {
+					return nil, err
+				}
 			}
 		case xml.CharData:
 			if curtag != "" {
-				if v, found := aliases[curtag]; found && (v == "__ERR" || v == "__ERRTEXT") {
-					if v == "__ERR" /*&& m.Default == string(t)*/ {
+				if v, found := aliases[curtag]; found {
+					switch {
+					case v.FieldName == "__ERR" && v.Default == string(t):
 						errExists = true
-					} else if v == "__ERRTEXT" {
-						errText = string(t)
-					}
-				} else {
-					if startData {
-						if v2, found2 := aliases[curtag]; found2 && v2 != "__NEW" && v2 != "" && string(t) != "\n\t" {
-							table.SetFieldValueByName(recno, v2, string(t))
-						}
+					case v.FieldName == "__ERRTEXT":
+						return nil, errors.New(string(t))
+					case v.FieldName != "" && v.FieldName != "__NEW" && string(t) != "\n\t":
+						l, _ := table.FieldIdx(v.FieldName)
+						value := formatValue(table.fields[l], string(t))
+						table.SetFieldValue(recno, l, value)
 					}
 				}
 				curtag = ""
 			}
 		}
+	}
+	if errExists {
+		return nil, errors.New("Unknown error")
 	}
 	return table, nil
 }
