@@ -247,7 +247,6 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 
 	r := xml.NewDecoder(f)
 	r.CharsetReader = charset.NewReaderLabel
-
 	aliases := make(map[string]DbfSchema)
 	for _, v := range schema {
 		if len(v.Alias) != 0 {
@@ -255,16 +254,19 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 		}
 	}
 	var (
-		curtag    string
-		errExists bool
-		errText   string
+		curtag   string
+		errFound bool
+		errText  string
+		recno    int = -1
 	)
-	recno := -1
 
+	utf2x := func(s, codepage string) string {
+		return mahonia.NewEncoder(codepage).ConvertString(s)
+	}
 	addNew := func() (rec int, err error) {
-		if errExists {
+		if errFound {
 			if len(errText) > 0 {
-				return -1, errors.New(errText)
+				return -1, errors.New(utf2x(errText, codepageFrom))
 			}
 			return -1, errors.New("Unknown error")
 		}
@@ -279,10 +281,6 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 
 		switch t := token.(type) {
 		case xml.StartElement:
-			if errExists && len(errText) > 0 {
-				return nil, errors.New(errText)
-			}
-
 			curtag = strings.ToLower(t.Name.Local)
 			if v, found := aliases[curtag+":"]; found && v.FieldName == "__NEW" {
 				if recno, err = addNew(); err != nil {
@@ -305,9 +303,9 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 				if v, found := aliases[curtag]; found {
 					switch {
 					case v.FieldName == "__ERR" && v.Default == string(t):
-						errExists = true
+						errFound = true
 					case v.FieldName == "__ERRTEXT":
-						return nil, errors.New(string(t))
+						return nil, errors.New(utf2x(string(t), codepageFrom))
 					case v.FieldName != "" && v.FieldName != "__NEW" && string(t) != "\n\t":
 						l, _ := table.FieldIdx(v.FieldName)
 						value := formatValue(table.fields[l], string(t))
@@ -318,7 +316,7 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 			}
 		}
 	}
-	if errExists {
+	if errFound {
 		return nil, errors.New("Unknown error")
 	}
 	return table, nil
