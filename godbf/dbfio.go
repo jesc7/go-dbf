@@ -270,7 +270,15 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 			}
 			return -1, errors.New("Unknown error")
 		}
-		return table.AddNewRecord(), nil
+		i := table.AddNewRecord()
+		for _, v := range aliases {
+			if v.Header {
+				if err := table.SetFieldValueByName(i, v.FieldName, v.Default); err != nil {
+					return -1, err
+				}
+			}
+		}
+		return i, nil
 	}
 
 	for {
@@ -302,6 +310,9 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 			if curtag != "" {
 				if v, found := aliases[curtag]; found {
 					switch {
+					case recno == -1 && v.Header:
+						v.Default = formatValue(table.FieldByName(v.FieldName), string(t))
+						aliases[curtag] = v
 					case v.FieldName == "__ERR" && v.Default == string(t):
 						errFound = true
 					case v.FieldName == "__ERRTEXT":

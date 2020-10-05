@@ -62,6 +62,7 @@ type DbfTable struct {
 type DbfSchema struct {
 	FieldName     string `json:"FieldName"`
 	Alias         string `json:"Alias"`
+	Header        bool   `json:"Header"`
 	DataType      string `json:"DataType"`
 	FieldLength   byte   `json:"FieldLength"`
 	DecimalPlaces uint8  `json:"DecimalPlaces"`
