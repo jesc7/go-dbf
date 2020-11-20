@@ -16,6 +16,12 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
+type errorEmpty struct{}
+
+func (m *errorEmpty) Error() string {
+	return "No destination field in schema, will be empty result"
+}
+
 //NewFromFile create in-memory dbf from file on disk
 func NewFromFile(fileName string, codepage string) (table *DbfTable, err error) {
 	s, err := readFile(fileName)
@@ -48,34 +54,42 @@ func NewFromDBF(filename string, codepageFrom string, schema []DbfSchema, codepa
 		return nil, err
 	}
 
-	aliases := make(map[string]string)
+	aliases := make(map[string][]string)
 	for _, v := range src.fields {
-		aliases[v.name] = v.name
+		aliases[v.name] = append(aliases[v.name], v.name)
 	}
 	for _, v := range schema {
 		if len(v.Alias) != 0 {
 			if _, found := aliases[v.Alias]; found {
-				aliases[v.Alias] = v.FieldName
+				if aliases[v.Alias][0] == v.Alias {
+					aliases[v.Alias][0] = v.FieldName
+				} else {
+					aliases[v.Alias] = append(aliases[v.Alias], v.FieldName)
+				}
 			}
 		}
 	}
 	var found bool
+out:
 	for _, v := range aliases {
-		if found = table.HasField(v); found {
-			break
+		for _, v2 := range v {
+			if found = table.HasField(v2); found {
+				break out
+			}
 		}
 	}
 	if !found {
-		return nil, fmt.Errorf("No destination field in schema, will be empty result")
+		return nil, &errorEmpty{} //fmt.Errorf("No destination field in schema, will be empty result")
 	}
 	for i := 0; i < int(src.numberOfRecords); i++ {
 		recno := table.AddNewRecord()
 		for _, v := range src.fields {
-			v2 := aliases[v.name]
-			if j, _ := table.FieldIdx(v2); j != -1 {
-				value, _ := src.FieldValueByName(recno, v.name)
-				value = formatValue(table.fields[j], value)
-				table.SetFieldValue(recno, j, value)
+			for _, v2 := range aliases[v.name] {
+				if j, _ := table.FieldIdx(v2); j != -1 {
+					value, _ := src.FieldValueByName(recno, v.name)
+					value = formatValue(table.fields[j], value)
+					table.SetFieldValue(recno, j, value)
+				}
 			}
 		}
 	}
@@ -94,7 +108,7 @@ func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, co
 	}
 	defer f.Close()
 
-	aliases := make(map[string]string)
+	aliases := make(map[string][]string)
 	r := csv.NewReader(mahonia.NewDecoder(codepageFrom).NewReader(f))
 	r.LazyQuotes = true
 	r.Comma = comma
@@ -128,23 +142,30 @@ func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, co
 		}
 		if !fillAliases {
 			for _, v := range header {
-				aliases[v] = v
+				aliases[v] = append(aliases[v], v)
 			}
 			for _, v := range schema {
 				if len(v.Alias) != 0 {
 					if _, found := aliases[v.Alias]; found {
-						aliases[v.Alias] = v.FieldName
+						if aliases[v.Alias][0] == v.Alias {
+							aliases[v.Alias][0] = v.FieldName
+						} else {
+							aliases[v.Alias] = append(aliases[v.Alias], v.FieldName)
+						}
 					}
 				}
 			}
 			var found bool
+		out:
 			for _, v := range aliases {
-				if found = table.HasField(v); found {
-					break
+				for _, v2 := range v {
+					if found = table.HasField(v2); found {
+						break out
+					}
 				}
 			}
 			if !found {
-				return nil, fmt.Errorf("No destination field in schema, will be empty result")
+				return nil, &errorEmpty{} //fmt.Errorf("No destination field in schema, will be empty result")
 			}
 			fillAliases = true
 		}
@@ -152,12 +173,14 @@ func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, co
 		recno := table.AddNewRecord()
 		for i := range record {
 			if i < len(header) {
-				j, err := table.FieldIdx(aliases[header[i]])
-				if err != nil {
-					continue
+				for _, v := range aliases[header[i]] {
+					j, err := table.FieldIdx(v)
+					if err != nil {
+						continue
+					}
+					value := formatValue(table.fields[j], record[i])
+					table.SetFieldValue(recno, j, value)
 				}
-				value := formatValue(table.fields[j], record[i])
-				table.SetFieldValue(recno, j, value)
 			}
 		}
 	}
@@ -218,7 +241,7 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 						}
 					}
 					if !found {
-						return nil, fmt.Errorf("No destination field in schema, will be empty result")
+						return nil, &errorEmpty{} //fmt.Errorf("No destination field in schema, will be empty result")
 					}
 				}
 
@@ -313,12 +336,6 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 							table.SetFieldValue(recno, l, value)
 						}
 					}
-
-					/*if v, found = aliases[curtag+":"+a.Name.Local]; found && v.FieldName != "__NEW" && v.FieldName != "" && a.Value != "\n\t" {
-						l, _ := table.FieldIdx(v.FieldName)
-						value := formatValue(table.fields[l], a.Value)
-						table.SetFieldValue(recno, l, value)
-					}*/
 				}
 			} else if v, found := aliases[curtag]; found && v[0].FieldName == "__NEW" {
 				if recno, err = addNew(); err != nil {
@@ -342,22 +359,6 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 						table.SetFieldValue(recno, l, value)
 					}
 				}
-
-				/*if v, found := aliases[curtag]; found {
-					switch {
-					case recno == -1 && v.Header:
-						v.Default = formatValue(table.FieldByName(v.FieldName), string(t))
-						aliases[curtag] = v
-					case v.FieldName == "__ERR" && v.Default == string(t):
-						errFound = true
-					case v.FieldName == "__ERRTEXT":
-						return nil, errors.New(utf2x(string(t), codepageFrom))
-					case v.FieldName != "" && v.FieldName != "__NEW" && string(t) != "\n\t":
-						l, _ := table.FieldIdx(v.FieldName)
-						value := formatValue(table.fields[l], string(t))
-						table.SetFieldValue(recno, l, value)
-					}
-				}*/
 				curtag = ""
 			}
 		}
