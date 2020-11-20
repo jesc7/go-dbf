@@ -178,7 +178,7 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 	for i := 0; i < xl.NumSheets(); i++ {
 		sh := xl.GetSheet(i)
 		if strings.EqualFold(sh.Name, sheet) {
-			aliases := make(map[string]string)
+			aliases := make(map[string][]string)
 			var header []string
 			for j := 1 + skip; j <= int(sh.MaxRow); j++ {
 				r := sh.Row(j)
@@ -195,19 +195,26 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 						header = append(header, "F"+strconv.Itoa(k+1))
 					}
 					for _, v := range header {
-						aliases[v] = v
+						aliases[v] = append(aliases[v], v)
 					}
 					for _, v := range schema {
 						if len(v.Alias) != 0 {
 							if _, found := aliases[v.Alias]; found {
-								aliases[v.Alias] = v.FieldName
+								if aliases[v.Alias][0] == v.Alias {
+									aliases[v.Alias][0] = v.FieldName
+								} else {
+									aliases[v.Alias] = append(aliases[v.Alias], v.FieldName)
+								}
 							}
 						}
 					}
 					var found bool
+				out:
 					for _, v := range aliases {
-						if found = table.HasField(v); found {
-							break
+						for _, v2 := range v {
+							if found = table.HasField(v2); found {
+								break out
+							}
 						}
 					}
 					if !found {
@@ -218,12 +225,14 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 				recno := table.AddNewRecord()
 				for k := range record {
 					if k < len(header) {
-						l, err := table.FieldIdx(aliases[header[k]])
-						if err != nil {
-							continue
+						for _, v := range aliases[header[k]] {
+							l, err := table.FieldIdx(v)
+							if err != nil {
+								continue
+							}
+							value := formatValue(table.fields[l], record[k])
+							table.SetFieldValue(recno, l, value)
 						}
-						value := formatValue(table.fields[l], record[k])
-						table.SetFieldValue(recno, l, value)
 					}
 				}
 			}
@@ -247,10 +256,10 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 
 	r := xml.NewDecoder(f)
 	r.CharsetReader = charset.NewReaderLabel
-	aliases := make(map[string]DbfSchema)
+	aliases := make(map[string][]DbfSchema)
 	for _, v := range schema {
 		if len(v.Alias) != 0 {
-			aliases[strings.ToLower(v.Alias)] = v
+			aliases[strings.ToLower(v.Alias)] = append(aliases[strings.ToLower(v.Alias)], v)
 		}
 	}
 	var (
@@ -272,9 +281,11 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 		}
 		i := table.AddNewRecord()
 		for _, v := range aliases {
-			if v.Header {
-				if err := table.SetFieldValueByName(i, v.FieldName, v.Default); err != nil {
-					return -1, err
+			for _, v2 := range v {
+				if v2.Header {
+					if err := table.SetFieldValueByName(i, v2.FieldName, v2.Default); err != nil {
+						return -1, err
+					}
 				}
 			}
 		}
@@ -290,25 +301,49 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 		switch t := token.(type) {
 		case xml.StartElement:
 			curtag = strings.ToLower(t.Name.Local)
-			if v, found := aliases[curtag+":"]; found && v.FieldName == "__NEW" {
+			if v, found := aliases[curtag+":"]; found && v[0].FieldName == "__NEW" {
 				if recno, err = addNew(); err != nil {
 					return nil, err
 				}
 				for _, a := range t.Attr {
-					if v, found = aliases[curtag+":"+a.Name.Local]; found && v.FieldName != "__NEW" && v.FieldName != "" && a.Value != "\n\t" {
+					for _, v2 := range aliases[curtag+":"+a.Name.Local] {
+						if v2.FieldName != "__NEW" && v2.FieldName != "" && a.Value != "\n\t" {
+							l, _ := table.FieldIdx(v2.FieldName)
+							value := formatValue(table.fields[l], a.Value)
+							table.SetFieldValue(recno, l, value)
+						}
+					}
+
+					/*if v, found = aliases[curtag+":"+a.Name.Local]; found && v.FieldName != "__NEW" && v.FieldName != "" && a.Value != "\n\t" {
 						l, _ := table.FieldIdx(v.FieldName)
 						value := formatValue(table.fields[l], a.Value)
 						table.SetFieldValue(recno, l, value)
-					}
+					}*/
 				}
-			} else if v, found := aliases[curtag]; found && v.FieldName == "__NEW" {
+			} else if v, found := aliases[curtag]; found && v[0].FieldName == "__NEW" {
 				if recno, err = addNew(); err != nil {
 					return nil, err
 				}
 			}
 		case xml.CharData:
 			if curtag != "" {
-				if v, found := aliases[curtag]; found {
+				for i, v := range aliases[curtag] {
+					switch {
+					case recno == -1 && v.Header:
+						v.Default = formatValue(table.FieldByName(v.FieldName), string(t))
+						aliases[curtag][i] = v
+					case v.FieldName == "__ERR" && v.Default == string(t):
+						errFound = true
+					case v.FieldName == "__ERRTEXT":
+						return nil, errors.New(utf2x(string(t), codepageFrom))
+					case v.FieldName != "" && v.FieldName != "__NEW" && string(t) != "\n\t":
+						l, _ := table.FieldIdx(v.FieldName)
+						value := formatValue(table.fields[l], string(t))
+						table.SetFieldValue(recno, l, value)
+					}
+				}
+
+				/*if v, found := aliases[curtag]; found {
 					switch {
 					case recno == -1 && v.Header:
 						v.Default = formatValue(table.FieldByName(v.FieldName), string(t))
@@ -322,7 +357,7 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 						value := formatValue(table.fields[l], string(t))
 						table.SetFieldValue(recno, l, value)
 					}
-				}
+				}*/
 				curtag = ""
 			}
 		}
