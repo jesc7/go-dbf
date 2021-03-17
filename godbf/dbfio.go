@@ -26,6 +26,9 @@ func (m *errorEmpty) Error() string {
 func NewFromFile(fileName string, codepage string) (table *DbfTable, err error) {
 	s, err := readFile(fileName)
 	if err == nil {
+		if len(s) == 0 {
+			return nil, errors.New("File is empty")
+		}
 		return createDbfTable(s, codepage)
 	}
 	return
@@ -187,7 +190,18 @@ func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, co
 	return table, nil
 }
 
-//NewFromXLS create schema-based dbf from excel file
+/*NewFromXLS create schema-based dbf from excel file
+ошибка форматирования ячеек, закомментировал проблемную часть
+xls/col.go:
+func (c *NumberCol) String(wb *WorkBook) []string {
+	//if fNo := wb.Xfs[c.Index].formatNo(); fNo != 0 {
+	//	t := timeFromExcelTime(c.Float, wb.dateMode == 1)
+	//	log.Println(t)
+	//	return []string{yymmdd.Format(t, wb.Formats[fNo].str)}
+	//}
+	return []string{strconv.FormatFloat(c.Float, 'f', -1, 64)}
+}
+*/
 func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, skip int, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
 	table, err = NewFromSchema(schema, codepageTo)
 	if err != nil {
@@ -241,7 +255,7 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 						}
 					}
 					if !found {
-						return nil, &errorEmpty{} //fmt.Errorf("No destination field in schema, will be empty result")
+						return nil, &errorEmpty{}
 					}
 				}
 
@@ -262,7 +276,7 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 			return table, nil
 		}
 	}
-	return nil, fmt.Errorf("No sheet named %s", sheet)
+	return nil, fmt.Errorf("no sheet named %s", sheet)
 }
 
 //NewFromXML create dbf from XML
@@ -300,7 +314,7 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 			if len(errText) > 0 {
 				return -1, errors.New(utf2x(errText, codepageFrom))
 			}
-			return -1, errors.New("Unknown error")
+			return -1, errors.New("unknown error")
 		}
 		i := table.AddNewRecord()
 		for _, v := range aliases {
@@ -364,7 +378,7 @@ func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepa
 		}
 	}
 	if errFound {
-		return nil, errors.New("Unknown error")
+		return nil, errors.New("unknown error")
 	}
 	return table, nil
 }
