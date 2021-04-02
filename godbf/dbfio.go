@@ -99,20 +99,13 @@ out:
 	return table, nil
 }
 
-//NewFromCSV create schema-based dbf and fill it from csv file
-func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
 	table, err = NewFromSchema(schema, codepageTo)
 	if err != nil {
 		return
 	}
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
 	aliases := make(map[string][]string)
-	r := csv.NewReader(mahonia.NewDecoder(codepageFrom).NewReader(f))
+	r := csv.NewReader(mahonia.NewDecoder(codepageFrom).NewReader(src))
 	r.LazyQuotes = true
 	r.Comma = comma
 	var (
@@ -188,6 +181,16 @@ func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, co
 		}
 	}
 	return table, nil
+}
+
+//NewFromCSV create schema-based dbf and fill it from csv file
+func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return NewFromCSVReader(f, codepageFrom, headers, skip, comma, schema, codepageTo)
 }
 
 /*NewFromXLS create schema-based dbf from excel file
