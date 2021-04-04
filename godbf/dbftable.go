@@ -60,14 +60,15 @@ type DbfTable struct {
 
 //DbfSchema describe table fields
 type DbfSchema struct {
-	FieldName     string `json:"FieldName"`
-	Alias         string `json:"Alias"`
-	Header        bool   `json:"Header"`
-	DataType      string `json:"DataType"`
-	FieldLength   byte   `json:"FieldLength"`
-	DecimalPlaces uint8  `json:"DecimalPlaces"`
-	Format        string `json:"Format"`
-	Default       string `json:"Default"`
+	FieldName     string `json:"name"`
+	Alias         string `json:"alias"`
+	Header        bool   `json:"header"`
+	DataType      string `json:"type"`
+	FieldLength   byte   `json:"length"`
+	DecimalPlaces uint8  `json:"decimal"`
+	Format        string `json:"format"`
+	Default       string `json:"default"`
+	Expr          string `json:"expr"`
 }
 
 // New creates a new dbase table from scratch for the given character encoding
@@ -447,7 +448,6 @@ func (dt *DbfTable) SetFieldValueByName(row int, fieldName string, value string)
 // SetFieldValue sets the value for the given row and field index as specified
 // If the field index is invalid, or the value is incompatible with the field's type, an error is returned.
 func (dt *DbfTable) SetFieldValue(row int, fieldIndex int, value string) (err error) {
-
 	b := []byte(dt.encoder.ConvertString(value))
 	fieldLength := int(dt.fields[fieldIndex].length)
 

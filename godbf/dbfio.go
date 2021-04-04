@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/antonmedv/expr"
 	"github.com/axgle/mahonia"
 	"github.com/sergeilem/xls"
 	"golang.org/x/net/html/charset"
@@ -82,7 +83,7 @@ out:
 		}
 	}
 	if !found {
-		return nil, &errorEmpty{} //fmt.Errorf("No destination field in schema, will be empty result")
+		return nil, &errorEmpty{}
 	}
 	for i := 0; i < int(src.numberOfRecords); i++ {
 		recno := table.AddNewRecord()
@@ -105,6 +106,7 @@ func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int
 		return
 	}
 	aliases := make(map[string][]string)
+	exprs := make(map[string]string)
 	r := csv.NewReader(mahonia.NewDecoder(codepageFrom).NewReader(src))
 	r.LazyQuotes = true
 	r.Comma = comma
@@ -132,7 +134,7 @@ func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int
 				header = record
 				continue
 			}
-			for i := 0; i <= len(record); i++ {
+			for i := 0; i < len(record); i++ {
 				header = append(header, "F"+strconv.Itoa(i+1))
 			}
 		}
@@ -149,6 +151,8 @@ func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int
 							aliases[v.Alias] = append(aliases[v.Alias], v.FieldName)
 						}
 					}
+				} else if len(v.Expr) != 0 {
+					exprs[v.FieldName] = v.Expr
 				}
 			}
 			var found bool
@@ -161,7 +165,7 @@ func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int
 				}
 			}
 			if !found {
-				return nil, &errorEmpty{} //fmt.Errorf("No destination field in schema, will be empty result")
+				return nil, &errorEmpty{}
 			}
 			fillAliases = true
 		}
@@ -176,6 +180,21 @@ func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int
 					}
 					value := formatValue(table.fields[j], record[i])
 					table.SetFieldValue(recno, j, value)
+				}
+			}
+		}
+		if len(exprs) > 0 {
+			env := make(map[string]interface{})
+			for i := 0; i < len(header); i++ {
+				env[header[i]] = record[i]
+			}
+			for k, v := range exprs {
+				if j, err := table.FieldIdx(k); err == nil {
+					if p, err := expr.Compile(v, expr.Env(env)); err == nil {
+						if value, err := expr.Run(p, env); err == nil {
+							table.SetFieldValue(recno, j, fmt.Sprintf("%v", value))
+						}
+					}
 				}
 			}
 		}
