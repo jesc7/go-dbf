@@ -301,19 +301,23 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 	return nil, fmt.Errorf("no sheet named %s", sheet)
 }
 
-//NewFromXML create dbf from XML
 func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
-	table, err = NewFromSchema(schema, codepageTo)
-	if err != nil {
-		return
-	}
 	f, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	return NewFromXMLReader(f, codepageFrom, schema, codepageTo)
+}
 
-	r := xml.NewDecoder(f)
+//NewFromXMLReader create dbf from XML
+func NewFromXMLReader(src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+	table, err = NewFromSchema(schema, codepageTo)
+	if err != nil {
+		return
+	}
+
+	r := xml.NewDecoder(src)
 	r.CharsetReader = charset.NewReaderLabel
 	aliases := make(map[string][]DbfSchema)
 	for _, v := range schema {
