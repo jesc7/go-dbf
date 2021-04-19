@@ -26,7 +26,7 @@ type Fltrs struct {
 	buf map[string]string
 }
 
-func DbfFilter(table *DbfTable, f DbfFilters) {
+func UseFilter(table *DbfTable, f DbfFilters) {
 	if fs := NewFltrs(f); !fs.Empty() {
 		for i := 0; i < table.NumberOfRecords(); i++ {
 			fs.Clear()
