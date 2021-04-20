@@ -1,6 +1,7 @@
 package godbf
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/xml"
 	"errors"
@@ -47,19 +48,36 @@ func NewFromSchema(schema []DbfSchema, codepage string) (table *DbfTable, err er
 	return
 }
 
+func NewFromDBF(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return NewFromDBFReader(f, codepageFrom, schema, codepageTo)
+}
+
 //NewFromDBF recreate dbf, aliases and field restrictions are supperted
-func NewFromDBF(filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+func NewFromDBFReader(src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
 	table, err = NewFromSchema(schema, codepageTo)
 	if err != nil {
 		return
 	}
-	src, err := NewFromFile(filename, codepageFrom)
-	if err != nil {
-		return nil, err
+
+	streamToByte := func(stream io.Reader) []byte {
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(stream)
+		return buf.Bytes()
+	}
+
+	source, e := NewFromByteArray(streamToByte(src), codepageFrom)
+	if e != nil {
+		return nil, e
 	}
 
 	aliases := make(map[string][]string)
-	for _, v := range src.fields {
+	defs := make(map[string]string)
+	for _, v := range source.fields {
 		aliases[v.name] = append(aliases[v.name], v.name)
 	}
 	for _, v := range schema {
@@ -71,6 +89,8 @@ func NewFromDBF(filename string, codepageFrom string, schema []DbfSchema, codepa
 					aliases[v.Alias] = append(aliases[v.Alias], v.FieldName)
 				}
 			}
+		} else if len(v.Default) != 0 {
+			defs[v.FieldName] = v.Default
 		}
 	}
 	var found bool
@@ -85,19 +105,36 @@ out:
 	if !found {
 		return nil, &errorEmpty{}
 	}
-	for i := 0; i < int(src.numberOfRecords); i++ {
+	for i := 0; i < int(source.numberOfRecords); i++ {
 		recno := table.AddNewRecord()
-		for _, v := range src.fields {
+		for _, v := range source.fields {
 			for _, v2 := range aliases[v.name] {
 				if j, _ := table.FieldIdx(v2); j != -1 {
-					value, _ := src.FieldValueByName(recno, v.name)
+					value, _ := source.FieldValueByName(recno, v.name)
 					value = formatValue(table.fields[j], value)
 					table.SetFieldValue(recno, j, value)
 				}
 			}
 		}
+		if len(defs) > 0 {
+			for k, v := range defs {
+				if j, e := table.FieldIdx(k); e == nil {
+					table.SetFieldValue(recno, j, v)
+				}
+			}
+		}
 	}
 	return table, nil
+}
+
+//NewFromCSV create schema-based dbf and fill it from csv file
+func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return NewFromCSVReader(f, codepageFrom, headers, skip, comma, schema, codepageTo)
 }
 
 func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
@@ -200,16 +237,6 @@ func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int
 		}
 	}
 	return table, nil
-}
-
-//NewFromCSV create schema-based dbf and fill it from csv file
-func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return NewFromCSVReader(f, codepageFrom, headers, skip, comma, schema, codepageTo)
 }
 
 /*NewFromXLS create schema-based dbf from excel file
