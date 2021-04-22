@@ -48,7 +48,7 @@ func NewFromSchema(schema []DbfSchema, codepage string) (table *DbfTable, err er
 	return
 }
 
-func NewFromDBF(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
+func NewFromDBF(filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -344,9 +344,12 @@ func NewFromXMLReader(src io.Reader, codepageFrom string, schema []DbfSchema, co
 	r := xml.NewDecoder(src)
 	r.CharsetReader = charset.NewReaderLabel
 	aliases := make(map[string][]DbfSchema)
+	exprs := make(map[string]string)
 	for _, v := range schema {
 		if len(v.Alias) != 0 {
 			aliases[strings.ToLower(v.Alias)] = append(aliases[strings.ToLower(v.Alias)], v)
+		} else if len(v.Expr) != 0 {
+			exprs[v.FieldName] = v.Expr
 		}
 	}
 	var (
@@ -354,6 +357,7 @@ func NewFromXMLReader(src io.Reader, codepageFrom string, schema []DbfSchema, co
 		errFound bool
 		errText  string
 		recno    int = -1
+		env      map[string]interface{}
 	)
 
 	utf2x := func(s, codepage string) string {
@@ -366,7 +370,21 @@ func NewFromXMLReader(src io.Reader, codepageFrom string, schema []DbfSchema, co
 			}
 			return -1, errors.New("unknown error")
 		}
+
+		if recno != -1 && len(exprs) > 0 {
+			for k, v := range exprs {
+				if j, err := table.FieldIdx(k); err == nil {
+					if p, err := expr.Compile(v, expr.Env(env)); err == nil {
+						if value, err := expr.Run(p, env); err == nil {
+							table.SetFieldValue(recno, j, fmt.Sprintf("%v", value))
+						}
+					}
+				}
+			}
+		}
+
 		i := table.AddNewRecord()
+		env = make(map[string]interface{})
 		for _, v := range aliases {
 			for _, v2 := range v {
 				if v2.Header {
@@ -399,6 +417,7 @@ func NewFromXMLReader(src io.Reader, codepageFrom string, schema []DbfSchema, co
 							table.SetFieldValue(recno, l, formatValue(table.fields[l], a.Value))
 						}
 					}
+					env[curtag+"_"+a.Name.Local] = a.Value
 				}
 			} else if v, found := aliases[curtag]; found && v[0].FieldName == "__NEW" {
 				if recno, e = addNew(); e != nil {
@@ -421,6 +440,7 @@ func NewFromXMLReader(src io.Reader, codepageFrom string, schema []DbfSchema, co
 						table.SetFieldValue(recno, l, formatValue(table.fields[l], string(t)))
 					}
 				}
+				env[curtag] = string(t)
 				curtag = ""
 			}
 		}
