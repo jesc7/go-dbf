@@ -494,6 +494,9 @@ func (dt *DbfTable) fillFieldWithBlanks(fieldLength int, offset int, recordOffse
 //FieldValue returns the content for the record at the given row and field index as a string
 // If the row or field index is invalid, an error is returned .
 func (dt *DbfTable) FieldValue(row int, fieldIndex int) (value string) {
+	if fieldIndex == -1 {
+		return
+	}
 
 	offset := int(dt.numberOfBytesInHeader)
 	lengthOfRecord := int(dt.lengthOfEachRecord)

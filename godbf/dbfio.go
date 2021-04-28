@@ -357,7 +357,7 @@ func NewFromXMLReader(src io.Reader, codepageFrom string, schema []DbfSchema, co
 		errFound bool
 		errText  string
 		recno    int = -1
-		env      map[string]interface{}
+		env          = make(map[string]interface{})
 	)
 
 	utf2x := func(s, codepage string) string {
