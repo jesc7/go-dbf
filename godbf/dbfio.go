@@ -77,13 +77,14 @@ func NewFromDBFReader(src io.Reader, codepageFrom string, schema []DbfSchema, co
 
 	aliases := make(map[string][]string)
 	defs := make(map[string]string)
+	exprs := make(map[string]string)
 	for _, v := range source.fields {
-		aliases[v.name] = append(aliases[v.name], v.name)
+		aliases[v.name] = append(aliases[v.name], "*"+v.name)
 	}
 	for _, v := range schema {
 		if len(v.Alias) != 0 {
 			if _, found := aliases[v.Alias]; found {
-				if aliases[v.Alias][0] == v.Alias {
+				if aliases[v.Alias][0] == "*"+v.Alias {
 					aliases[v.Alias][0] = v.FieldName
 				} else {
 					aliases[v.Alias] = append(aliases[v.Alias], v.FieldName)
@@ -91,6 +92,13 @@ func NewFromDBFReader(src io.Reader, codepageFrom string, schema []DbfSchema, co
 			}
 		} else if len(v.Default) != 0 {
 			defs[v.FieldName] = v.Default
+		} else if len(v.Expr) != 0 {
+			exprs[v.FieldName] = v.Expr
+		}
+	}
+	for k, v := range aliases {
+		if v[0][:1] == "*" {
+			aliases[k][0] = ""
 		}
 	}
 	var found bool
@@ -119,6 +127,33 @@ out:
 			for k, v := range defs {
 				if j, e := table.FieldIdx(k); e == nil {
 					table.SetFieldValue(recno, j, v)
+				}
+			}
+		}
+		if len(exprs) > 0 {
+			env := make(map[string]interface{})
+			for _, v := range source.fields {
+				switch v.fieldType {
+				case Numeric:
+					if v.decimalPlaces == 0 {
+						env[v.name], _ = source.Int64FieldValueByName(recno, v.name)
+					} else {
+						env[v.name], _ = source.Float64FieldValueByName(recno, v.name)
+					}
+				case Float:
+					env[v.name], _ = source.Float64FieldValueByName(recno, v.name)
+				default:
+					env[v.name], _ = source.FieldValueByName(recno, v.name)
+				}
+			}
+			env["__sprintf"] = fmt.Sprintf
+			for k, v := range exprs {
+				if j, err := table.FieldIdx(k); err == nil {
+					if p, err := expr.Compile(v, expr.Env(env)); err == nil {
+						if value, err := expr.Run(p, env); err == nil {
+							table.SetFieldValue(recno, j, fmt.Sprintf("%v", value))
+						}
+					}
 				}
 			}
 		}
