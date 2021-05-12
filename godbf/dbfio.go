@@ -41,6 +41,24 @@ func NewFromByteArray(data []byte, codepage string) (table *DbfTable, err error)
 	return createDbfTable(data, codepage)
 }
 
+func JoinSchemas(base, detail []DbfSchema) (res []DbfSchema) {
+	res = append(res, base...)
+	m := make(map[string]int, len(res))
+	for i := range res {
+		m[res[i].FieldName] = i
+	}
+	for _, v := range detail {
+		if i, ok := m[v.FieldName]; ok {
+			res[i].Alias = v.Alias
+			res[i].Header = v.Header
+			res[i].Format = v.Format
+			res[i].Default = v.Default
+			res[i].Expr = v.Expr
+		}
+	}
+	return
+}
+
 //NewFromSchema create schema-based dbf
 func NewFromSchema(schema []DbfSchema, codepage string) (table *DbfTable, err error) {
 	table = New(codepage)
