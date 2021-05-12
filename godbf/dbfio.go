@@ -166,9 +166,10 @@ out:
 			}
 			env["__sprintf"] = fmt.Sprintf
 			for k, v := range exprs {
-				if j, err := table.FieldIdx(k); err == nil {
-					if p, err := expr.Compile(v, expr.Env(env)); err == nil {
-						if value, err := expr.Run(p, env); err == nil {
+				if j, e := table.FieldIdx(k); e == nil {
+					p, e := expr.Compile(v, expr.Env(env))
+					if e == nil {
+						if value, e := expr.Run(p, env); e == nil {
 							table.SetFieldValue(recno, j, fmt.Sprintf("%v", value))
 						}
 					}
