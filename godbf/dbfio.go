@@ -52,7 +52,6 @@ func JoinSchemas(base, detail []DbfSchema) (res []DbfSchema) {
 			res[i].Alias = v.Alias
 			res[i].Header = v.Header
 			res[i].Format = v.Format
-			res[i].Default = v.Default
 			res[i].Expr = v.Expr
 		}
 	}
