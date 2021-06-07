@@ -589,6 +589,10 @@ func (dt *DbfTable) GetRowAsSlice(row int) []string {
 	return s
 }
 
+func (dt *DbfTable) Data() []byte {
+	return dt.dataStore
+}
+
 func formatValue(f FieldDescriptor, value string) string {
 	left := func(str string, length int) string {
 		runes := []rune(str)

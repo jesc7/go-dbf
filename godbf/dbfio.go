@@ -2,6 +2,7 @@ package godbf
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/xml"
 	"errors"
@@ -29,7 +30,7 @@ func NewFromFile(fileName string, codepage string) (table *DbfTable, err error) 
 	s, err := readFile(fileName)
 	if err == nil {
 		if len(s) == 0 {
-			return nil, errors.New("File is empty")
+			return nil, errors.New("file is empty")
 		}
 		return createDbfTable(s, codepage)
 	}
@@ -378,17 +379,17 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 	return nil, fmt.Errorf("no sheet named %s", sheet)
 }
 
-func NewFromXML(filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
+func NewFromXML(ctx context.Context, filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
 	f, e := os.Open(filename)
 	if e != nil {
 		return nil, e
 	}
 	defer f.Close()
-	return NewFromXMLReader(f, codepageFrom, schema, codepageTo)
+	return NewFromXMLReader(ctx, f, codepageFrom, schema, codepageTo)
 }
 
 //NewFromXMLReader create dbf from XML
-func NewFromXMLReader(src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
+func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
 	table, e = NewFromSchema(schema, codepageTo)
 	if e != nil {
 		return
@@ -451,6 +452,12 @@ func NewFromXMLReader(src io.Reader, codepageFrom string, schema []DbfSchema, co
 	}
 
 	for {
+		select {
+		case <-ctx.Done():
+			return nil, errors.New("context has been canceled")
+		default:
+		}
+
 		token, _ := r.Token()
 		if token == nil {
 			break
