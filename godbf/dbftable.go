@@ -432,7 +432,12 @@ func (dt *DbfTable) AddNewRecord() (newRecordNumber int) {
 }
 
 // NumberOfRecords returns the number of records in the table
-func (dt *DbfTable) NumberOfRecords() int {
+func (dt *DbfTable) NumberOfRecords() (ret int) {
+	defer func() {
+		if r := recover(); r != nil {
+			ret = 0
+		}
+	}()
 	return int(dt.numberOfRecords)
 }
 
