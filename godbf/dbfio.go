@@ -379,7 +379,7 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 	return nil, fmt.Errorf("no sheet named %s", sheet)
 }
 
-func NewFromXML(ctx context.Context, filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
+func NewFromXML(ctx context.Context, filename string, codepageFrom string, schema []DbfSchema, codepageTo string) ([]*DbfTable, error) {
 	f, e := os.Open(filename)
 	if e != nil {
 		return nil, e
@@ -389,11 +389,11 @@ func NewFromXML(ctx context.Context, filename string, codepageFrom string, schem
 }
 
 //NewFromXMLReader create dbf from XML
-func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
-	table, e = NewFromSchema(schema, codepageTo)
+func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (tables []*DbfTable, e error) {
+	/*table, e = NewFromSchema(schema, codepageTo)
 	if e != nil {
 		return
-	}
+	}*/
 
 	r := xml.NewDecoder(src)
 	r.CharsetReader = charset.NewReaderLabel
@@ -414,10 +414,31 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 		env          = make(map[string]interface{})
 	)
 
+	min := func(v1, v2 int64) int64 {
+		if v1 <= v2 {
+			return v1
+		}
+		return v2
+	}
 	utf2x := func(s, codepage string) string {
 		return mahonia.NewEncoder(codepage).ConvertString(s)
 	}
-	addNew := func() (rec int, e error) {
+	doExpr := func(table *DbfTable, recno int) {
+		if recno != -1 && len(exprs) > 0 {
+			for k, v := range exprs {
+				if j, err := table.FieldIdx(k); err == nil {
+					p, err := expr.Compile(v, expr.Env(env))
+					if err != nil {
+						return
+					}
+					if value, err := expr.Run(p, env); err == nil {
+						table.SetFieldValue(recno, j, fmt.Sprintf("%v", value))
+					}
+				}
+			}
+		}
+	}
+	addNew := func(table *DbfTable) (i int, e error) {
 		if errFound {
 			if len(errText) > 0 {
 				return -1, errors.New(utf2x(errText, codepageFrom))
@@ -425,19 +446,8 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 			return -1, errors.New("unknown error")
 		}
 
-		if recno != -1 && len(exprs) > 0 {
-			for k, v := range exprs {
-				if j, err := table.FieldIdx(k); err == nil {
-					if p, err := expr.Compile(v, expr.Env(env)); err == nil {
-						if value, err := expr.Run(p, env); err == nil {
-							table.SetFieldValue(recno, j, fmt.Sprintf("%v", value))
-						}
-					}
-				}
-			}
-		}
-
-		i := table.AddNewRecord()
+		doExpr(table, recno)
+		i = table.AddNewRecord()
 		env = make(map[string]interface{})
 		for _, v := range aliases {
 			for _, v2 := range v {
@@ -448,9 +458,10 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 				}
 			}
 		}
-		return i, nil
+		return
 	}
 
+	var table *DbfTable
 	for {
 		select {
 		case <-ctx.Done():
@@ -466,22 +477,42 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 		switch t := token.(type) {
 		case xml.StartElement:
 			curtag = strings.ToLower(t.Name.Local)
-			if v, found := aliases[curtag+":"]; found && v[0].FieldName == "__NEW" {
-				if recno, e = addNew(); e != nil {
-					return nil, e
+			if v, found := aliases[curtag]; found && v[0].FieldName == "__NEWTABLE" {
+				if table != nil && table.NumberOfRecords() > 0 {
+					doExpr(table, table.NumberOfRecords()-1)
+					tables = append(tables, table)
 				}
-				for _, a := range t.Attr {
-					for _, v2 := range aliases[curtag+":"+a.Name.Local] {
-						if v2.FieldName != "__NEW" && v2.FieldName != "" && a.Value != "\n\t" {
-							l, _ := table.FieldIdx(v2.FieldName)
-							table.SetFieldValue(recno, l, formatValue(table.fields[l], a.Value))
-						}
+				table, e = NewFromSchema(schema, codepageTo)
+				if e != nil {
+					return
+				}
+				recno = -1
+			}
+
+			var b2 bool
+			v, b := aliases[curtag+":"]
+			if !b {
+				v, b2 = aliases[curtag]
+			}
+			if (b || b2) && (v[0].FieldName == "__NEW") {
+				if table == nil {
+					if table, e = NewFromSchema(schema, codepageTo); e != nil {
+						return
 					}
-					env[curtag+"_"+a.Name.Local] = a.Value
 				}
-			} else if v, found := aliases[curtag]; found && v[0].FieldName == "__NEW" {
-				if recno, e = addNew(); e != nil {
+				if recno, e = addNew(table); e != nil {
 					return nil, e
+				}
+				if b {
+					for _, a := range t.Attr {
+						for _, v2 := range aliases[curtag+":"+a.Name.Local] {
+							if v2.FieldName != "__NEW" && v2.FieldName != "" && a.Value != "\n\t" {
+								l, _ := table.FieldIdx(v2.FieldName)
+								table.SetFieldValue(recno, l, formatValue(table.fields[l], a.Value))
+							}
+						}
+						env[curtag+"_"+a.Name.Local] = a.Value
+					}
 				}
 			}
 		case xml.CharData:
@@ -495,7 +526,7 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 						errFound = true
 					case v.FieldName == "__ERRTEXT":
 						return nil, errors.New(utf2x(string(t), codepageFrom))
-					case v.FieldName != "" && v.FieldName != "__NEW" && string(t) != "\n\t":
+					case v.FieldName != "" && v.FieldName[:min(5, int64(len(v.FieldName)))] != "__NEW" && string(t) != "\n\t":
 						l, _ := table.FieldIdx(v.FieldName)
 						table.SetFieldValue(recno, l, formatValue(table.fields[l], string(t)))
 					}
@@ -505,10 +536,14 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 			}
 		}
 	}
+	if table != nil && table.NumberOfRecords() > 0 {
+		doExpr(table, table.NumberOfRecords()-1)
+		tables = append(tables, table)
+	}
 	if errFound {
 		return nil, errors.New("unknown error")
 	}
-	return table, nil
+	return tables, nil
 }
 
 func createDbfTable(s []byte, codepage string) (table *DbfTable, err error) {
