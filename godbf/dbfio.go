@@ -75,7 +75,7 @@ func NewFromDBF(filename string, codepageFrom string, schema []DbfSchema, codepa
 	return NewFromDBFReader(f, codepageFrom, schema, codepageTo)
 }
 
-//NewFromDBF recreate dbf, aliases and field restrictions are supperted
+//NewFromDBF recreate dbf, aliases and field restrictions are supported
 func NewFromDBFReader(src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
 	table, e = NewFromSchema(schema, codepageTo)
 	if e != nil {
@@ -527,8 +527,10 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 					case v.FieldName == "__ERRTEXT":
 						return nil, errors.New(utf2x(string(t), codepageFrom))
 					case v.FieldName != "" && v.FieldName[:min(5, int64(len(v.FieldName)))] != "__NEW" && string(t) != "\n\t":
-						l, _ := table.FieldIdx(v.FieldName)
-						table.SetFieldValue(recno, l, formatValue(table.fields[l], string(t)))
+						if table != nil && recno > -1 {
+							l, _ := table.FieldIdx(v.FieldName)
+							table.SetFieldValue(recno, l, formatValue(table.fields[l], string(t)))
+						}
 					}
 				}
 				env[curtag] = string(t)
@@ -540,8 +542,10 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 		doExpr(table, table.NumberOfRecords()-1)
 		tables = append(tables, table)
 	}
-	if errFound {
-		return nil, errors.New("unknown error")
+	if len(tables) == 0 || errFound {
+		table, _ = NewFromSchema(schema, codepageTo)
+		tables = []*DbfTable{table}
+		return tables, errors.New("unknown error")
 	}
 	return tables, nil
 }

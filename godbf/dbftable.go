@@ -598,6 +598,39 @@ func (dt *DbfTable) Data() []byte {
 	return dt.dataStore
 }
 
+func (dt *DbfTable) CopySchema() *DbfTable {
+	dst := new(DbfTable)
+	dst.fileEncoding = dt.fileEncoding
+	dst.fileSignature = dt.fileSignature
+	dst.updateYear = dt.updateYear
+	dst.updateMonth = dt.updateMonth
+	dst.updateDay = dt.updateDay
+	dst.numberOfRecords = 0
+	dst.numberOfBytesInHeader = dt.numberOfBytesInHeader
+	dst.lengthOfEachRecord = dt.lengthOfEachRecord
+	dst.fieldMap = make(map[string]int)
+	dst.numberOfFields = int((dst.numberOfBytesInHeader - 1 - 32) / 32)
+
+	for i, v := range dt.Fields() {
+		fieldName := v.name
+		dst.fieldMap[fieldName] = i
+
+		switch v.fieldType {
+		case 'C':
+			dst.AddTextField(fieldName, v.length)
+		case 'N':
+			dst.AddNumberField(fieldName, v.length, v.decimalPlaces)
+		case 'F':
+			dst.AddFloatField(fieldName, v.length, v.decimalPlaces)
+		case 'L':
+			dst.AddBooleanField(fieldName)
+		case 'D':
+			dst.AddDateField(fieldName, "")
+		}
+	}
+	return dst
+}
+
 func formatValue(f FieldDescriptor, value string) string {
 	left := func(str string, length int) string {
 		runes := []rune(str)
