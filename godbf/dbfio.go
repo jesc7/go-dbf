@@ -520,7 +520,15 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 				for i, v := range aliases[curtag] {
 					switch {
 					case recno == -1 && v.Header:
-						v.Default = formatValue(table.FieldByName(v.FieldName), string(t))
+						if table == nil {
+							var tmp *DbfTable
+							if tmp, e = NewFromSchema(schema, codepageTo); e != nil {
+								return
+							}
+							v.Default = formatValue(tmp.FieldByName(v.FieldName), string(t))
+						} else {
+							v.Default = formatValue(table.FieldByName(v.FieldName), string(t))
+						}
 						aliases[curtag][i] = v
 					case v.FieldName == "__ERR" && v.Default == string(t):
 						errFound = true
