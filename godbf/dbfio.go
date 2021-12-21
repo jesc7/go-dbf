@@ -39,6 +39,9 @@ func NewFromFile(fileName string, codepage string) (table *DbfTable, err error) 
 
 //NewFromByteArray create dbf from byte array
 func NewFromByteArray(data []byte, codepage string) (table *DbfTable, err error) {
+	if len(data) == 0 {
+		return nil, errors.New("empty data")
+	}
 	return createDbfTable(data, codepage)
 }
 
@@ -54,29 +57,32 @@ func JoinSchemas(base, detail []DbfSchema) (res []DbfSchema) {
 			res[i].Header = v.Header
 			res[i].Format = v.Format
 			res[i].Expr = v.Expr
+			if res[i].FieldName[:2] == "__" {
+				res[i].Default = v.Default
+			}
 		}
 	}
 	return
 }
 
 //NewFromSchema create schema-based dbf
-func NewFromSchema(schema []DbfSchema, codepage string) (table *DbfTable, err error) {
-	table = New(codepage)
-	err = table.AddSchema(schema)
-	return
+func NewFromSchema(schema []DbfSchema, codepage string) (DbfTable, error) {
+	table := *New(codepage)
+	e := table.AddSchema(schema)
+	return table, e
 }
 
-func NewFromDBF(filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, err error) {
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, err
+func NewFromDBF(filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (DbfTable, error) {
+	f, e := os.Open(filename)
+	if e != nil {
+		return DbfTable{}, e
 	}
 	defer f.Close()
 	return NewFromDBFReader(f, codepageFrom, schema, codepageTo)
 }
 
 //NewFromDBF recreate dbf, aliases and field restrictions are supported
-func NewFromDBFReader(src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
+func NewFromDBFReader(src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table DbfTable, e error) {
 	table, e = NewFromSchema(schema, codepageTo)
 	if e != nil {
 		return
@@ -90,7 +96,7 @@ func NewFromDBFReader(src io.Reader, codepageFrom string, schema []DbfSchema, co
 
 	source, e := NewFromByteArray(streamToByte(src), codepageFrom)
 	if e != nil {
-		return nil, e
+		return DbfTable{}, e
 	}
 
 	aliases := make(map[string][]string)
@@ -129,7 +135,7 @@ out:
 		}
 	}
 	if !found {
-		return nil, &errorEmpty{}
+		return DbfTable{}, &errorEmpty{}
 	}
 	for i := 0; i < int(source.numberOfRecords); i++ {
 		recno := table.AddNewRecord()
@@ -143,9 +149,10 @@ out:
 		}
 		if len(defs) > 0 {
 			for k, v := range defs {
-				if j, e := table.FieldIdx(k); e == nil {
+				table.SetFieldValueByName(recno, k, v)
+				/*if j, e := table.FieldIdx(k); e == nil {
 					table.SetFieldValue(recno, j, v)
-				}
+				}*/
 			}
 		}
 		if len(exprs) > 0 {
@@ -176,21 +183,24 @@ out:
 				}
 			}
 		}
+		if (i+1)%100 == 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
 	}
 	return table, nil
 }
 
 //NewFromCSV create schema-based dbf and fill it from csv file
-func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
+func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (DbfTable, error) {
 	f, e := os.Open(filename)
 	if e != nil {
-		return nil, e
+		return DbfTable{}, e
 	}
 	defer f.Close()
 	return NewFromCSVReader(f, codepageFrom, headers, skip, comma, schema, codepageTo)
 }
 
-func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
+func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (table DbfTable, e error) {
 	table, e = NewFromSchema(schema, codepageTo)
 	if e != nil {
 		return
@@ -213,7 +223,7 @@ func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int
 			break
 		}
 		if e != nil && len(record) < len(header) {
-			return nil, e
+			return DbfTable{}, e
 		}
 		if skip--; skip >= 0 {
 			continue
@@ -255,7 +265,7 @@ func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int
 				}
 			}
 			if !found {
-				return nil, &errorEmpty{}
+				return DbfTable{}, &errorEmpty{}
 			}
 			fillAliases = true
 		}
@@ -303,14 +313,14 @@ func (c *NumberCol) String(wb *WorkBook) []string {
 	return []string{strconv.FormatFloat(c.Float, 'f', -1, 64)}
 }
 */
-func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, skip int, schema []DbfSchema, codepageTo string) (table *DbfTable, e error) {
+func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, skip int, schema []DbfSchema, codepageTo string) (table DbfTable, e error) {
 	table, e = NewFromSchema(schema, codepageTo)
 	if e != nil {
 		return
 	}
 	xl, e := xls.Open(filename, codepageFrom)
 	if e != nil {
-		return nil, e
+		return DbfTable{}, e
 	}
 
 	for i := 0; i < xl.NumSheets(); i++ {
@@ -356,7 +366,7 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 						}
 					}
 					if !found {
-						return nil, &errorEmpty{}
+						return DbfTable{}, &errorEmpty{}
 					}
 				}
 
@@ -376,10 +386,10 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 			return table, nil
 		}
 	}
-	return nil, fmt.Errorf("no sheet named %s", sheet)
+	return DbfTable{}, fmt.Errorf("no sheet named %s", sheet)
 }
 
-func NewFromXML(ctx context.Context, filename string, codepageFrom string, schema []DbfSchema, codepageTo string) ([]*DbfTable, error) {
+func NewFromXML(ctx context.Context, filename string, codepageFrom string, schema []DbfSchema, codepageTo string) ([]DbfTable, error) {
 	f, e := os.Open(filename)
 	if e != nil {
 		return nil, e
@@ -389,7 +399,7 @@ func NewFromXML(ctx context.Context, filename string, codepageFrom string, schem
 }
 
 //NewFromXMLReader create dbf from XML
-func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (tables []*DbfTable, e error) {
+func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (tables []DbfTable, e error) {
 	/*table, e = NewFromSchema(schema, codepageTo)
 	if e != nil {
 		return
@@ -461,7 +471,7 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 		return
 	}
 
-	var table *DbfTable
+	var table DbfTable
 	for {
 		select {
 		case <-ctx.Done():
@@ -478,8 +488,8 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 		case xml.StartElement:
 			curtag = strings.ToLower(t.Name.Local)
 			if v, found := aliases[curtag]; found && v[0].FieldName == "__NEWTABLE" {
-				if table != nil && table.NumberOfRecords() > 0 {
-					doExpr(table, table.NumberOfRecords()-1)
+				if table.NumberOfRecords() > 0 {
+					doExpr(&table, table.NumberOfRecords()-1)
 					tables = append(tables, table)
 				}
 				table, e = NewFromSchema(schema, codepageTo)
@@ -495,12 +505,12 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 				v, b2 = aliases[curtag]
 			}
 			if (b || b2) && (v[0].FieldName == "__NEW") {
-				if table == nil {
+				if len(table.Fields()) == 0 {
 					if table, e = NewFromSchema(schema, codepageTo); e != nil {
 						return
 					}
 				}
-				if recno, e = addNew(table); e != nil {
+				if recno, e = addNew(&table); e != nil {
 					return nil, e
 				}
 				if b {
@@ -511,7 +521,7 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 								table.SetFieldValue(recno, l, formatValue(table.fields[l], a.Value))
 							}
 						}
-						env[curtag+"_"+a.Name.Local] = a.Value
+						env[curtag+"_"+a.Name.Local] = strings.Trim(a.Value, " ")
 					}
 				}
 			}
@@ -520,8 +530,8 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 				for i, v := range aliases[curtag] {
 					switch {
 					case recno == -1 && v.Header:
-						if table == nil {
-							var tmp *DbfTable
+						if len(table.Fields()) == 0 {
+							var tmp DbfTable
 							if tmp, e = NewFromSchema(schema, codepageTo); e != nil {
 								return
 							}
@@ -533,26 +543,26 @@ func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, s
 					case v.FieldName == "__ERR" && v.Default == string(t):
 						errFound = true
 					case v.FieldName == "__ERRTEXT":
-						return nil, errors.New(utf2x(string(t), codepageFrom))
+						return nil, errors.New(string(t))
 					case v.FieldName != "" && v.FieldName[:min(5, int64(len(v.FieldName)))] != "__NEW" && string(t) != "\n\t":
-						if table != nil && recno > -1 {
+						if len(table.Fields()) != 0 && recno > -1 {
 							l, _ := table.FieldIdx(v.FieldName)
 							table.SetFieldValue(recno, l, formatValue(table.fields[l], string(t)))
 						}
 					}
 				}
-				env[curtag] = string(t)
+				env[curtag] = strings.Trim(string(t), " ")
 				curtag = ""
 			}
 		}
 	}
-	if table != nil && table.NumberOfRecords() > 0 {
-		doExpr(table, table.NumberOfRecords()-1)
+	if table.NumberOfRecords() > 0 {
+		doExpr(&table, table.NumberOfRecords()-1)
 		tables = append(tables, table)
 	}
 	if len(tables) == 0 || errFound {
 		table, _ = NewFromSchema(schema, codepageTo)
-		tables = []*DbfTable{table}
+		tables = []DbfTable{table}
 		return tables, errors.New("unknown error")
 	}
 	return tables, nil

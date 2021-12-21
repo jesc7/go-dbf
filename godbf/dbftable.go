@@ -650,11 +650,12 @@ func formatValue(f FieldDescriptor, value string) string {
 			}
 		case 'D':
 			switch f.format {
+			case "", "20060102":
 			case "RFC3339":
 				t, _ := time.Parse(time.RFC3339, value)
 				value = t.Format("20060102")
-			case "02.01.2006":
-				t, _ := time.Parse("02.01.2006", value)
+			default:
+				t, _ := time.Parse(f.format, value)
 				value = t.Format("20060102")
 			}
 		}
