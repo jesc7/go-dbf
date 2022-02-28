@@ -599,7 +599,7 @@ func (dt *DbfTable) Data() []byte {
 }
 
 func (dt *DbfTable) Dbase() []byte {
-	return append(dt.dataStore, []byte{0x1A}...)
+	return append(dt.dataStore, 0x1A)
 }
 
 func (dt *DbfTable) CopySchema() *DbfTable {
