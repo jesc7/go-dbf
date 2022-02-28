@@ -598,6 +598,10 @@ func (dt *DbfTable) Data() []byte {
 	return dt.dataStore
 }
 
+func (dt *DbfTable) Dbase() []byte {
+	return append(dt.dataStore, []byte{0x1A}...)
+}
+
 func (dt *DbfTable) CopySchema() *DbfTable {
 	dst := new(DbfTable)
 	dst.fileEncoding = dt.fileEncoding
