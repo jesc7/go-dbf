@@ -142,7 +142,7 @@ out:
 		for _, v := range source.fields {
 			for _, v2 := range aliases[v.name] {
 				if j, _ := table.FieldIdx(v2); j != -1 {
-					value, _ := source.FieldValueByName(recno, v.name)
+					value, _ := source.FieldValueByName(i, v.name)
 					table.SetFieldValue(recno, j, formatValue(table.fields[j], value))
 				}
 			}
@@ -161,21 +161,20 @@ out:
 				switch v.fieldType {
 				case Numeric:
 					if v.decimalPlaces == 0 {
-						env[v.name], _ = source.Int64FieldValueByName(recno, v.name)
+						env[v.name], _ = source.Int64FieldValueByName(i, v.name)
 					} else {
-						env[v.name], _ = source.Float64FieldValueByName(recno, v.name)
+						env[v.name], _ = source.Float64FieldValueByName(i, v.name)
 					}
 				case Float:
-					env[v.name], _ = source.Float64FieldValueByName(recno, v.name)
+					env[v.name], _ = source.Float64FieldValueByName(i, v.name)
 				default:
-					env[v.name], _ = source.FieldValueByName(recno, v.name)
+					env[v.name], _ = source.FieldValueByName(i, v.name)
 				}
 			}
 			env["__sprintf"] = fmt.Sprintf
 			for k, v := range exprs {
 				if j, e := table.FieldIdx(k); e == nil {
-					p, e := expr.Compile(v, expr.Env(env))
-					if e == nil {
+					if p, e := expr.Compile(v, expr.Env(env)); e == nil {
 						if value, e := expr.Run(p, env); e == nil {
 							table.SetFieldValue(recno, j, fmt.Sprintf("%v", value))
 						}
@@ -183,9 +182,9 @@ out:
 				}
 			}
 		}
-		if (i+1)%100 == 0 {
+		/*if (i+1)%100 == 0 {
 			time.Sleep(5 * time.Millisecond)
-		}
+		}*/
 	}
 	return table, nil
 }
