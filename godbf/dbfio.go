@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -25,7 +26,7 @@ func (m *errorEmpty) Error() string {
 	return "No destination field in schema, will be empty result"
 }
 
-//NewFromFile create in-memory dbf from file on disk
+// NewFromFile create in-memory dbf from file on disk
 func NewFromFile(fileName string, codepage string) (table *DbfTable, err error) {
 	s, err := readFile(fileName)
 	if err == nil {
@@ -37,7 +38,7 @@ func NewFromFile(fileName string, codepage string) (table *DbfTable, err error) 
 	return
 }
 
-//NewFromByteArray create dbf from byte array
+// NewFromByteArray create dbf from byte array
 func NewFromByteArray(data []byte, codepage string) (table *DbfTable, err error) {
 	if len(data) == 0 {
 		return nil, errors.New("empty data")
@@ -65,7 +66,7 @@ func JoinSchemas(base, detail []DbfSchema) (res []DbfSchema) {
 	return
 }
 
-//NewFromSchema create schema-based dbf
+// NewFromSchema create schema-based dbf
 func NewFromSchema(schema []DbfSchema, codepage string) (DbfTable, error) {
 	table := *New(codepage)
 	e := table.AddSchema(schema)
@@ -81,22 +82,18 @@ func NewFromDBF(filename string, codepageFrom string, schema []DbfSchema, codepa
 	return NewFromDBFReader(f, codepageFrom, schema, codepageTo)
 }
 
-//NewFromDBF recreate dbf, aliases and field restrictions are supported
+// NewFromDBF recreate dbf, aliases and field restrictions are supported
 func NewFromDBFReader(src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table DbfTable, e error) {
-	table, e = NewFromSchema(schema, codepageTo)
-	if e != nil {
+	if table, e = NewFromSchema(schema, codepageTo); e != nil {
 		return
 	}
-
-	streamToByte := func(stream io.Reader) []byte {
-		buf := new(bytes.Buffer)
-		buf.ReadFrom(stream)
-		return buf.Bytes()
+	buf := &bytes.Buffer{}
+	if _, e = buf.ReadFrom(src); e != nil {
+		return
 	}
-
-	source, e := NewFromByteArray(streamToByte(src), codepageFrom)
-	if e != nil {
-		return DbfTable{}, e
+	var source *DbfTable
+	if source, e = NewFromByteArray(buf.Bytes(), codepageFrom); e != nil {
+		return
 	}
 
 	aliases := make(map[string][]string)
@@ -150,9 +147,6 @@ out:
 		if len(defs) > 0 {
 			for k, v := range defs {
 				table.SetFieldValueByName(recno, k, v)
-				/*if j, e := table.FieldIdx(k); e == nil {
-					table.SetFieldValue(recno, j, v)
-				}*/
 			}
 		}
 		if len(exprs) > 0 {
@@ -189,7 +183,7 @@ out:
 	return table, nil
 }
 
-//NewFromCSV create schema-based dbf and fill it from csv file
+// NewFromCSV create schema-based dbf and fill it from csv file
 func NewFromCSV(filename string, codepageFrom string, headers bool, skip int, comma rune, schema []DbfSchema, codepageTo string) (DbfTable, error) {
 	f, e := os.Open(filename)
 	if e != nil {
@@ -300,17 +294,19 @@ func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int
 	return table, nil
 }
 
-/*NewFromXLS create schema-based dbf from excel file
+/*
+NewFromXLS create schema-based dbf from excel file
 ошибка форматирования ячеек, закомментировал проблемную часть
 xls/col.go:
-func (c *NumberCol) String(wb *WorkBook) []string {
-	//if fNo := wb.Xfs[c.Index].formatNo(); fNo != 0 {
-	//	t := timeFromExcelTime(c.Float, wb.dateMode == 1)
-	//	log.Println(t)
-	//	return []string{yymmdd.Format(t, wb.Formats[fNo].str)}
-	//}
-	return []string{strconv.FormatFloat(c.Float, 'f', -1, 64)}
-}
+
+	func (c *NumberCol) String(wb *WorkBook) []string {
+		//if fNo := wb.Xfs[c.Index].formatNo(); fNo != 0 {
+		//	t := timeFromExcelTime(c.Float, wb.dateMode == 1)
+		//	log.Println(t)
+		//	return []string{yymmdd.Format(t, wb.Formats[fNo].str)}
+		//}
+		return []string{strconv.FormatFloat(c.Float, 'f', -1, 64)}
+	}
 */
 func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, skip int, schema []DbfSchema, codepageTo string) (table DbfTable, e error) {
 	table, e = NewFromSchema(schema, codepageTo)
@@ -388,6 +384,218 @@ func NewFromXLS(filename string, codepageFrom string, sheet string, keycolumn, s
 	return DbfTable{}, fmt.Errorf("no sheet named %s", sheet)
 }
 
+func NewFromJSON(ctx context.Context, filename string, codepageFrom string, schema []DbfSchema, codepageTo string) ([]DbfTable, error) {
+	f, e := os.Open(filename)
+	if e != nil {
+		return nil, e
+	}
+	defer f.Close()
+	return NewFromJSONReader(ctx, f, codepageFrom, schema, codepageTo)
+}
+
+func NewFromJSONReader(ctx context.Context, src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (tables []DbfTable, e error) {
+	r := json.NewDecoder(src)
+	//r.CharsetReader = charset.NewReaderLabel
+	aliases := make(map[string][]DbfSchema)
+	exprs := make(map[string]string)
+	for _, v := range schema {
+		if len(v.Alias) != 0 {
+			aliases[strings.ToLower(v.Alias)] = append(aliases[strings.ToLower(v.Alias)], v)
+		} else if len(v.Expr) != 0 {
+			exprs[v.FieldName] = v.Expr
+		}
+	}
+	const (
+		lvlTables = iota
+		lvlTable
+		lvlRecord
+	)
+	var (
+		//curtag   string
+		errFound bool
+		//errText  string
+		//recno    int = -1
+		env = make(map[string]interface{})
+	)
+
+	/*min := func(v1, v2 int64) int64 {
+		if v1 <= v2 {
+			return v1
+		}
+		return v2
+	}*/
+	/*utf2x := func(s, codepage string) string {
+		return mahonia.NewEncoder(codepage).ConvertString(s)
+	}*/
+	doExpr := func(table *DbfTable, recno int) {
+		if recno != -1 && len(exprs) > 0 {
+			for k, v := range exprs {
+				if j, err := table.FieldIdx(k); err == nil {
+					p, err := expr.Compile(v, expr.Env(env))
+					if err != nil {
+						return
+					}
+					if value, err := expr.Run(p, env); err == nil {
+						table.SetFieldValue(recno, j, fmt.Sprintf("%v", value))
+					}
+				}
+			}
+		}
+	}
+	/*addNew := func(table *DbfTable) (i int, e error) {
+		if errFound {
+			if len(errText) > 0 {
+				return -1, errors.New(utf2x(errText, codepageFrom))
+			}
+			return -1, errors.New("unknown error")
+		}
+
+		doExpr(table, recno)
+		i = table.AddNewRecord()
+		env = make(map[string]interface{})
+		for _, v := range aliases {
+			for _, v2 := range v {
+				if v2.Header {
+					if e := table.SetFieldValueByName(i, v2.FieldName, v2.Default); e != nil {
+						return -1, e
+					}
+				}
+			}
+		}
+		return
+	}*/
+
+	var (
+		start = true
+		token json.Token
+		level = lvlTables
+		table DbfTable
+		//recno int
+	)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, errors.New("context has been canceled")
+		default:
+		}
+
+		token, e = r.Token()
+		if e == io.EOF {
+			break
+		}
+		if e != nil {
+			return
+		}
+		switch token.(type) {
+		case json.Delim:
+			switch token {
+			case "[":
+				level += 1
+			case "]":
+				level -= 1
+			case "{":
+				if start {
+					level = lvlTable
+				}
+				switch level {
+				case lvlTable:
+					table, e = NewFromSchema(schema, codepageTo)
+					if e != nil {
+						return
+					}
+				case lvlRecord:
+					//recno = table.AddNewRecord()
+				}
+			case "}":
+			}
+			start = false
+		}
+
+	}
+
+	/*switch t := token.(type) {
+	case xml.StartElement:
+		curtag = strings.ToLower(t.Name.Local)
+		if v, found := aliases[curtag]; found && v[0].FieldName == "__NEWTABLE" {
+			if table.NumberOfRecords() > 0 {
+				doExpr(&table, table.NumberOfRecords()-1)
+				tables = append(tables, table)
+			}
+			table, e = NewFromSchema(schema, codepageTo)
+			if e != nil {
+				return
+			}
+			recno = -1
+		}
+
+		var b2 bool
+		v, b := aliases[curtag+":"]
+		if !b {
+			v, b2 = aliases[curtag]
+		}
+		if (b || b2) && (v[0].FieldName == "__NEW") {
+			if len(table.Fields()) == 0 {
+				if table, e = NewFromSchema(schema, codepageTo); e != nil {
+					return
+				}
+			}
+			if recno, e = addNew(&table); e != nil {
+				return nil, e
+			}
+			if b {
+				for _, a := range t.Attr {
+					for _, v2 := range aliases[curtag+":"+a.Name.Local] {
+						if v2.FieldName != "__NEW" && v2.FieldName != "" && a.Value != "\n\t" {
+							l, _ := table.FieldIdx(v2.FieldName)
+							table.SetFieldValue(recno, l, formatValue(table.fields[l], a.Value))
+						}
+					}
+					env[curtag+"_"+a.Name.Local] = strings.Trim(a.Value, " ")
+				}
+			}
+		}
+	case xml.CharData:
+		if curtag != "" {
+			for i, v := range aliases[curtag] {
+				switch {
+				case recno == -1 && v.Header:
+					if len(table.Fields()) == 0 {
+						var tmp DbfTable
+						if tmp, e = NewFromSchema(schema, codepageTo); e != nil {
+							return
+						}
+						v.Default = formatValue(tmp.FieldByName(v.FieldName), string(t))
+					} else {
+						v.Default = formatValue(table.FieldByName(v.FieldName), string(t))
+					}
+					aliases[curtag][i] = v
+				case v.FieldName == "__ERR" && v.Default == string(t):
+					errFound = true
+				case v.FieldName == "__ERRTEXT":
+					return nil, errors.New(string(t))
+				case v.FieldName != "" && v.FieldName[:min(5, int64(len(v.FieldName)))] != "__NEW" && string(t) != "\n\t":
+					if len(table.Fields()) != 0 && recno > -1 {
+						l, _ := table.FieldIdx(v.FieldName)
+						table.SetFieldValue(recno, l, formatValue(table.fields[l], string(t)))
+					}
+				}
+			}
+			env[curtag] = strings.Trim(string(t), " ")
+			curtag = ""
+		}
+	}*/
+	if table.NumberOfRecords() > 0 {
+		doExpr(&table, table.NumberOfRecords()-1)
+		tables = append(tables, table)
+	}
+	if len(tables) == 0 || errFound {
+		table, _ = NewFromSchema(schema, codepageTo)
+		tables = []DbfTable{table}
+		return tables, errors.New("unknown error")
+	}
+	return tables, nil
+}
+
 func NewFromXML(ctx context.Context, filename string, codepageFrom string, schema []DbfSchema, codepageTo string) ([]DbfTable, error) {
 	f, e := os.Open(filename)
 	if e != nil {
@@ -397,13 +605,8 @@ func NewFromXML(ctx context.Context, filename string, codepageFrom string, schem
 	return NewFromXMLReader(ctx, f, codepageFrom, schema, codepageTo)
 }
 
-//NewFromXMLReader create dbf from XML
+// NewFromXMLReader create dbf from XML
 func NewFromXMLReader(ctx context.Context, src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (tables []DbfTable, e error) {
-	/*table, e = NewFromSchema(schema, codepageTo)
-	if e != nil {
-		return
-	}*/
-
 	r := xml.NewDecoder(src)
 	r.CharsetReader = charset.NewReaderLabel
 	aliases := make(map[string][]DbfSchema)
@@ -628,7 +831,7 @@ func createDbfTable(s []byte, codepage string) (table *DbfTable, err error) {
 	return dt, nil
 }
 
-//SaveFile save file on disk
+// SaveFile save file on disk
 func (dt *DbfTable) SaveFile(filename string) (err error) {
 	f, err := os.Create(filename)
 	if err != nil {
@@ -647,7 +850,7 @@ func (dt *DbfTable) SaveFile(filename string) (err error) {
 	return
 }
 
-//SaveCSV translate dbf to csv format
+// SaveCSV translate dbf to csv format
 func (dt *DbfTable) SaveCSV(filename string, codepage string, comma rune, headers bool) (e error) {
 	f, e := os.Create(filename)
 	if e != nil {

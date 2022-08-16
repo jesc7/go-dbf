@@ -9,9 +9,9 @@ import (
 
 type DbfFilters struct {
 	Repls []struct {
-		Fld string `json:"fld"`
-		F   string `json:"f"`
-		R   string `json:"r"`
+		Name string `json:"name"`
+		F    string `json:"f"`
+		R    string `json:"r"`
 	} `json:"repls"`
 	File string `json:"file"`
 }
@@ -60,14 +60,13 @@ func (f *Fltrs) prepare(cfg DbfFilters) {
 		}
 	}
 	for _, v := range cfg.Repls {
-		addFltr(v.Fld, v.F, v.R)
+		addFltr(v.Name, v.F, v.R)
 	}
 	if file, e := os.Open(cfg.File); e == nil {
 		defer file.Close()
 		sc := bufio.NewScanner(file)
 		for sc.Scan() {
-			sl := strings.Split(sc.Text(), "\t")
-			if len(sl) == 3 && len(sl[0]) > 0 {
+			if sl := strings.Split(sc.Text(), "\t"); len(sl) == 3 && len(sl[0]) > 0 {
 				addFltr(sl[0], sl[1], sl[2])
 			}
 		}

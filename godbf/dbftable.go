@@ -666,3 +666,7 @@ func formatValue(f FieldDescriptor, value string) string {
 	}
 	return value
 }
+
+func (dt *DbfTable) FormatValue(fieldName, value string) string {
+	return formatValue(dt.FieldByName(fieldName), value)
+}
