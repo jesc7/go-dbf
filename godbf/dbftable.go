@@ -16,7 +16,7 @@ const (
 	deleted = 0x2A
 )
 
-//DbfTable describe dbf file
+// DbfTable describe dbf file
 type DbfTable struct {
 	// dbase file header information
 	fileSignature         uint8 // Valid dBASE III PLUS table file (03h without a memo .DBT file; 83h with a memo)
@@ -58,7 +58,7 @@ type DbfTable struct {
 	dataStore []byte
 }
 
-//DbfSchema describe table fields
+// DbfSchema describe table fields
 type DbfSchema struct {
 	FieldName     string `json:"name"`
 	Alias         string `json:"alias"`
@@ -142,7 +142,7 @@ func New(encoding string) (table *DbfTable) {
 	return dt
 }
 
-//AddSchema add fields to new dbf
+// AddSchema add fields to new dbf
 func (dt *DbfTable) AddSchema(sch []DbfSchema) (err error) {
 	for _, f := range sch {
 		if len(f.DataType) != 0 {
@@ -166,7 +166,7 @@ func (dt *DbfTable) AddSchema(sch []DbfSchema) (err error) {
 	return nil
 }
 
-//AddFieldAs add field to dst like another from src
+// AddFieldAs add field to dst like another from src
 func (dt *DbfTable) AddFieldAs(src *FieldDescriptor, name string) (err error) {
 	switch src.FieldType() {
 	case Character:
@@ -280,9 +280,9 @@ func (dt *DbfTable) normaliseFieldName(name string) (s string) {
 }
 
 /*
-  getByteSlice converts value to byte slice according to given encoding and return
-  a slice that is fixedFieldLength equals to numberOfBytes or less if the string is shorter than
-  numberOfBytes
+getByteSlice converts value to byte slice according to given encoding and return
+a slice that is fixedFieldLength equals to numberOfBytes or less if the string is shorter than
+numberOfBytes
 */
 func (dt *DbfTable) convertToByteSlice(value string, numberOfBytes int) (s []byte) {
 	e := mahonia.NewEncoder(dt.fileEncoding)
@@ -496,7 +496,7 @@ func (dt *DbfTable) fillFieldWithBlanks(fieldLength int, offset int, recordOffse
 	}
 }
 
-//FieldValue returns the content for the record at the given row and field index as a string
+// FieldValue returns the content for the record at the given row and field index as a string
 // If the row or field index is invalid, an error is returned .
 func (dt *DbfTable) FieldValue(row int, fieldIndex int) (value string) {
 	if fieldIndex == -1 {
@@ -518,7 +518,7 @@ func (dt *DbfTable) FieldValue(row int, fieldIndex int) (value string) {
 		}
 	}
 
-	temp := dt.dataStore[(offset + recordOffset):((offset + recordOffset) + int(dt.fields[fieldIndex].length))]
+	temp := dt.dataStore[(offset + recordOffset):(offset + recordOffset + int(dt.fields[fieldIndex].length))]
 
 	enforceBlankPadding(temp)
 
@@ -557,6 +557,12 @@ func (dt *DbfTable) Int64FieldValueByName(row int, fieldName string) (value int6
 
 // FieldValueByName returns the value of a field given row number and name provided
 func (dt *DbfTable) FieldValueByName(row int, fieldName string) (value string, err error) {
+	defer func() {
+		if msg := recover(); msg != nil {
+			value = ""
+			err = fmt.Errorf("%v", msg)
+		}
+	}()
 	if fieldIndex, entryFound := dt.fieldMap[fieldName]; entryFound {
 		return dt.FieldValue(row, fieldIndex), err
 	}
@@ -564,7 +570,7 @@ func (dt *DbfTable) FieldValueByName(row int, fieldName string) (value string, e
 	return
 }
 
-//RowIsDeleted returns whether a row has marked as deleted
+// RowIsDeleted returns whether a row has marked as deleted
 func (dt *DbfTable) RowIsDeleted(row int) bool {
 	if row < 0 || row >= int(dt.NumberOfRecords()) {
 		return false
@@ -575,7 +581,7 @@ func (dt *DbfTable) RowIsDeleted(row int) bool {
 	return dt.dataStore[offset:(offset + 1)][0] == deleted
 }
 
-//DeleteRow deleted row by num
+// DeleteRow deleted row by num
 func (dt *DbfTable) DeleteRow(row int) error {
 	if row < 0 || row >= int(dt.NumberOfRecords()) {
 		return errors.New("Out of range")

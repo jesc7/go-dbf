@@ -73,17 +73,17 @@ func NewFromSchema(schema []DbfSchema, codepage string) (DbfTable, error) {
 	return table, e
 }
 
-func NewFromDBF(filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (DbfTable, error) {
+// NewFromDBF recreate dbf, aliases and field restrictions are supported
+func NewFromDBF(ctx context.Context, filename string, codepageFrom string, schema []DbfSchema, codepageTo string) (DbfTable, error) {
 	f, e := os.Open(filename)
 	if e != nil {
 		return DbfTable{}, e
 	}
 	defer f.Close()
-	return NewFromDBFReader(f, codepageFrom, schema, codepageTo)
+	return NewFromDBFReader(ctx, f, codepageFrom, schema, codepageTo)
 }
 
-// NewFromDBF recreate dbf, aliases and field restrictions are supported
-func NewFromDBFReader(src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table DbfTable, e error) {
+func NewFromDBFReader(ctx context.Context, src io.Reader, codepageFrom string, schema []DbfSchema, codepageTo string) (table DbfTable, e error) {
 	if table, e = NewFromSchema(schema, codepageTo); e != nil {
 		return
 	}
@@ -135,11 +135,21 @@ out:
 		return DbfTable{}, &errorEmpty{}
 	}
 	for i := 0; i < int(source.numberOfRecords); i++ {
+		select {
+		case <-ctx.Done():
+			return DbfTable{}, errors.New("context has been canceled")
+		default:
+		}
+
 		recno := table.AddNewRecord()
 		for _, v := range source.fields {
 			for _, v2 := range aliases[v.name] {
 				if j, _ := table.FieldIdx(v2); j != -1 {
-					value, _ := source.FieldValueByName(i, v.name)
+					var value string
+					value, e = source.FieldValueByName(i, v.name)
+					if e != nil {
+						return
+					}
 					table.SetFieldValue(recno, j, formatValue(table.fields[j], value))
 				}
 			}
