@@ -46,6 +46,24 @@ func NewFromByteArray(data []byte, codepage string) (table *DbfTable, err error)
 	return createDbfTable(data, codepage)
 }
 
+func SaveToFile(data []byte, filename string) (err error) {
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, dsErr := f.Write(data); dsErr != nil {
+		return dsErr
+	}
+
+	// Add dbase end of file marker (1Ah)
+	if _, footerErr := f.Write([]byte{0x1A}); footerErr != nil {
+		return footerErr
+	}
+	return
+}
+
 func JoinSchemas(base, detail []DbfSchema) (res []DbfSchema) {
 	res = append(res, base...)
 	m := make(map[string]int, len(res))
@@ -186,9 +204,6 @@ out:
 				}
 			}
 		}
-		/*if (i+1)%100 == 0 {
-			time.Sleep(5 * time.Millisecond)
-		}*/
 	}
 	return table, nil
 }
@@ -811,6 +826,10 @@ func createDbfTable(s []byte, codepage string) (table *DbfTable, err error) {
 		dt.fieldMap[fieldName] = i
 
 		var err error
+
+		if len(s) <= offset+11 {
+			return nil, errors.New("createDbfTable: index out of range")
+		}
 
 		switch s[offset+11] {
 		case 'C':
