@@ -578,16 +578,21 @@ func (dt *DbfTable) RowIsDeleted(row int) bool {
 	offset := int(dt.numberOfBytesInHeader)
 	lengthOfRecord := int(dt.lengthOfEachRecord)
 	offset = offset + (row * lengthOfRecord)
-	return dt.dataStore[offset:(offset + 1)][0] == deleted
+	if len(dt.dataStore) > (offset + 1) {
+		return dt.dataStore[offset:(offset + 1)][0] == deleted
+	}
+	return false
 }
 
 // DeleteRow deleted row by num
 func (dt *DbfTable) DeleteRow(row int) error {
 	if row < 0 || row >= int(dt.NumberOfRecords()) {
-		return errors.New("Out of range")
+		return errors.New("out of range")
 	}
 	offset := int(dt.numberOfBytesInHeader) + (row * int(dt.lengthOfEachRecord))
-	dt.dataStore[offset:(offset + 1)][0] = deleted
+	if len(dt.dataStore) > (offset + 1) {
+		dt.dataStore[offset:(offset + 1)][0] = deleted
+	}
 	return nil
 }
 
