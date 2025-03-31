@@ -231,21 +231,14 @@ func NewFromCSVReader(src io.Reader, codepageFrom string, headers bool, skip int
 	var (
 		header      []string
 		fillAliases bool
-		//ii          int
 	)
 	for {
-		//ii++
-		//fmt.Println(ii)
-
 		if skip >= 0 {
 			r.FieldsPerRecord = 0
 		}
 		record, e := r.Read()
 
-		//fmt.Println(ii, "- ok")
-
 		if e == io.EOF {
-			//fmt.Println(ii, "- error")
 			break
 		}
 		if e != nil && len(record) < len(header) {

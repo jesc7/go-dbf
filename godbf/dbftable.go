@@ -655,12 +655,13 @@ func formatValue(f FieldDescriptor, value string) string {
 		return str
 	}
 
+	value = strings.Trim(value, " ")
 	if value != "" {
 		switch f.fieldType {
 		case 'C':
 			value = left(value, int(f.length))
 		case 'N':
-			if n, err := strconv.ParseFloat(value, 32); err == nil {
+			if n, err := strconv.ParseFloat(strings.ReplaceAll(value, ",", "."), 32); err == nil {
 				value = fmt.Sprintf("%."+strconv.Itoa(int(f.decimalPlaces))+"f", n)
 			}
 		case 'D':
